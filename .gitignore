@@ -1,0 +1,6 @@
+# Generated mod and test iterations (rebuilt by generator/build_mod.py and generator/iterate.py)
+build/
+# Python
+.venv/
+__pycache__/
+*.pyc

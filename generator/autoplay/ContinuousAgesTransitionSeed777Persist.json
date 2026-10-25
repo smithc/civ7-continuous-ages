@@ -1,0 +1,7 @@
+{
+	"Scripts": [
+		"fs://game/base-standard/ui/automation/automation-test-support.js",
+		"fs://game/continuous-ages/ui/ca-automation.js"
+	],
+	"Tests": ["Tests=( { Test=CAPlayAges, Turns=60, ObserveAs=NONE, StartAge=AGE_ANTIQUITY, MapSeed=777, GameSeed=777, QuickMovement=1, QuickCombat=1, Player0Civ=CIVILIZATION_CARTHAGE, Player1Civ=CIVILIZATION_ASSYRIA, Player2Civ=CIVILIZATION_KHMER, Player3Civ=CIVILIZATION_MAURYA, Player4Civ=CIVILIZATION_AKSUM, Player5Civ=CIVILIZATION_MISSISSIPPIAN, CACivMode=AGE_TRANSITION_CIV_SELECTION_MODE_PERSISTENCE }, { Test=QuitApp } )"]
+}

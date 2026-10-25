@@ -1,0 +1,7 @@
+{
+	"Scripts": [
+		"fs://game/base-standard/ui/automation/automation-test-support.js",
+		"fs://game/base-standard/ui/automation/automation-test-play-game.js"
+	],
+	"Tests": ["Tests=( { Test=PlayGame, Turns=60, ObserveAs=OBSERVER, StartAge=AGE_ANTIQUITY, MapSeed=4242, GameSeed=4242, QuickMovement=1, QuickCombat=1 }, { Test=QuitApp } )"]
+}
