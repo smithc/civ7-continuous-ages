@@ -30,6 +30,8 @@ reset of a civ's progress except where noted.
 - Multiplayer.
 - A game that starts in Exploration or Modern.
 - Map scripts other than Continents and Earth.
+- The **Catch-up Research** option (see [Settings](settings.md#catch-up-research-mod-option)): costs in
+  the Modern world and of civ-specific civic trees were not measured.
 
 ## Open checks
 
@@ -46,3 +48,5 @@ reset of a civ's progress except where noted.
   speed-up (`EFFECT_PLAYER_ADJUST_PROGRESSION_TREE_EFFICIENCY`) for civs past the Exploration
   Breakthrough. Lost civics would come back in about a turn. Limit: the game keeps no record of which
   civics were lost, so a civ past its Breakthrough would get all its old civ-tree civics cheaply.
+  The Catch-up Research option (off by default) covers this in part: with it on, lost civics of an
+  earlier age cost half or two thirds of the turns.

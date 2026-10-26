@@ -67,7 +67,11 @@ def parse_modinfo(path: Path) -> Module:
             mod.dependencies = [d.get("id") for d in el]
         elif tag == "ActionCriteria":
             for crit in el:
-                conds = [(strip_ns(c.tag), (c.text or "").strip()) for c in crit]
+                # A condition with child elements (ConfigurationValueMatches: Group, ConfigurationId,
+                # Value) keeps them as "Group/ConfigurationId=Value".
+                conds = [(strip_ns(c.tag), "{}/{}={}".format(*((c.findtext(f"{{ModInfo}}{k}") or c.findtext(k) or "").strip()
+                                                              for k in ("Group", "ConfigurationId", "Value")))
+                          if len(c) else (c.text or "").strip()) for c in crit]
                 mod.criteria[crit.get("id")] = (crit.get("any") == "true", conds)
         elif tag == "ActionGroups":
             for i, grp in enumerate(el):
@@ -115,7 +119,8 @@ def order_by_dependencies(mods: list[Module], loaded: set[str]) -> list[Module]:
 
 
 def criterion_met(cond: tuple[str, str], age: str, enabled: set[str] = frozenset(),
-                  ruleset: str = "RULESET_STANDARD") -> bool:
+                  ruleset: str = "RULESET_STANDARD", config: dict | None = None) -> bool:
+    """config: setup values as {"Group/ConfigurationId": value}; a value not given does not match."""
     tag, text = cond
     cur = AGES.index(age)
     if tag in ("ModInUse", "ModIsEnabled", "ModIsInstalled"):
@@ -132,27 +137,31 @@ def criterion_met(cond: tuple[str, str], age: str, enabled: set[str] = frozenset
         return AGES.index(text) < cur
     if tag == "RuleSetInUse":
         return text == ruleset
+    if tag == "ConfigurationValueMatches":
+        key, _, value = text.partition("=")
+        return (config or {}).get(key) == value
     raise ValueError(f"unsupported criterion {tag}")
 
 
-def group_applies(mod: Module, grp: ActionGroup, age: str, enabled: set[str] = frozenset()) -> bool:
+def group_applies(mod: Module, grp: ActionGroup, age: str, enabled: set[str] = frozenset(),
+                  config: dict | None = None) -> bool:
     if grp.scope != "game" or grp.criteria not in mod.criteria:
         # Some shipped modinfo files name criteria that they never define
         # (for example "great-britain-curret"); such a group cannot apply.
         return False
     any_, conds = mod.criteria[grp.criteria]
-    results = [criterion_met(c, age, enabled) for c in conds]
+    results = [criterion_met(c, age, enabled, config=config) for c in conds]
     return any(results) if any_ else all(results)
 
 
-def applicable_groups(mods: list[Module], age: str) -> list[tuple[Module, ActionGroup]]:
+def applicable_groups(mods: list[Module], age: str, config: dict | None = None) -> list[tuple[Module, ActionGroup]]:
     """Game-scope groups that load when `age` is current, in engine load order.
-    All given modules count as enabled."""
+    All given modules count as enabled. config: setup values (see criterion_met)."""
     enabled = {m.id for m in mods}
     out = []
     for mi, mod in enumerate(mods):
         for grp in mod.groups:
-            if group_applies(mod, grp, age, enabled):
+            if group_applies(mod, grp, age, enabled, config):
                 out.append((mi, mod, grp))
     out.sort(key=lambda t: (t[2].load_order, t[0], t[2].index))
     return [(mod, grp) for _, mod, grp in out]

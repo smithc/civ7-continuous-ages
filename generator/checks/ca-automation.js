@@ -124,6 +124,12 @@ class AutomationTestCAPlayAges extends AutomationBasePlayGame {
       GameSetup.setGameParameterValue("AgeTransitionSetting", setting);
       Automation.log(`CAPlayAges: AgeTransitionSetting ${setting}`);
     }
+    // Test parameter CACatchUp: the mod's Catch-up Research option (default: CA_CATCHUP_OFF).
+    const catchUp = Automation.getParameter("CurrentTest", "CACatchUp");
+    if (catchUp) {
+      GameSetup.setGameParameterValue("CaCatchUp", catchUp);
+      Automation.log(`CAPlayAges: CaCatchUp ${catchUp}`);
+    }
     // Test parameter CACivMode: the AI civ choice mode at transitions (default: the game's, Mirroring).
     const civMode = Automation.getParameter("CurrentTest", "CACivMode");
     if (civMode) {

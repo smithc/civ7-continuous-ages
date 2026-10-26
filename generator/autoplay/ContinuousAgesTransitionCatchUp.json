@@ -1,0 +1,7 @@
+{
+	"Scripts": [
+		"fs://game/base-standard/ui/automation/automation-test-support.js",
+		"fs://game/continuous-ages/ui/ca-automation.js"
+	],
+	"Tests": ["Tests=( { Test=CAPlayAges, Turns=60, ObserveAs=NONE, StartAge=AGE_ANTIQUITY, MapSeed=4242, GameSeed=4242, CACatchUp=CA_CATCHUP_100, QuickMovement=1, QuickCombat=1, Player0Civ=CIVILIZATION_EGYPT, Player1Civ=CIVILIZATION_PERSIA, Player2Civ=CIVILIZATION_GREECE, Player3Civ=CIVILIZATION_HAN, Player4Civ=CIVILIZATION_ROME, Player5Civ=CIVILIZATION_MAYA }, { Test=QuitApp } )"]
+}

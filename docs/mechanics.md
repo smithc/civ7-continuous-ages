@@ -59,6 +59,9 @@ A civ's age is the age of its last Breakthrough:
 - Civ-specific civic trees (unique trees, Test of Time trees, branch trees) of a later age also need
   that age's Breakthrough. See [Civs and ages](civs-and-ages.md#unique-content-civ-abilities-and-civic-trees).
 
+Optional: with the **Catch-up Research** setup option, techs and civics of ages before the world age
+are faster to research. See [Settings](settings.md#catch-up-research-mod-option).
+
 ## The world transition: no reset
 
 The world transition happens as in the base game, when the world's age progress is complete. The mod

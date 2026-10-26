@@ -53,6 +53,12 @@ CIVIC_TREES = ["TREE_CIVICS_AQ_MAIN", "TREE_CIVICS_EX_MAIN", "TREE_CIVICS_MO_MAI
 GATES = {"AGE_EXPLORATION": "NODE_TECH_CA_EXPLORATION_BREAKTHROUGH", "AGE_MODERN": "NODE_TECH_CA_MODERN_BREAKTHROUGH"}
 GATE_MODIFIER = {a: f"MOD_CA_{NAME[a].upper()}_BREAKTHROUGH" for a in GATES}
 GATE_COST_FACTOR = 1.2
+# Catch-up research (game setup option): every node of an age before the world age, and the
+# Breakthrough into the world age, costs 1 / (1 + Percent/100): +50% two thirds, +100% half
+# (getNodeCost, iterations 20261025-170959 and 171708).
+CATCHUP_KEY = "CaCatchUp"
+CATCHUP = {"CA_CATCHUP_50": 50, "CA_CATCHUP_100": 100}
+CATCHUP_CHUNK = 40  # nodes per modifier (the base game's longest list has 7; keep each list short)
 
 # Shared civ-age files of another age: the civ abilities of other-age civs in that age.
 EXCLUDE_MODULE_PATTERNS: list[str] = []
@@ -486,6 +492,42 @@ class WorldBuild:
         self.info = {"tech": tech_info, "civic": civic_info, "baseline": baseline_report}
         return "\n".join(lines), defs
 
+    def catchup(self, removed: set[str]):
+        """Catch-up research for the setup option: modifier definitions (always loaded, harmless
+        when not attached) and, per option value, the SQL that attaches them to every major player.
+        No requirement on the player: a civ that has the nodes gains nothing, so the bonus goes to
+        civs behind the world, and to any civ that skipped an old node."""
+        earlier = [a for a in AGES if later(self.world, a)]
+        if not earlier:
+            return [], {}, {}
+        rows = self.sim.db.execute(
+            "SELECT n.ProgressionTreeNodeType, t.SystemType FROM ProgressionTreeNodes n JOIN ProgressionTrees t "
+            f"ON t.ProgressionTreeType = n.ProgressionTree WHERE t.AgeType IN ({', '.join('?' * len(earlier))}) "
+            "ORDER BY t.SystemType, n.ProgressionTree, n.ProgressionTreeNodeType", earlier).fetchall()
+        nodes = defaultdict(list)
+        for n, system in rows:
+            if n not in removed:
+                nodes[system].append(n)
+        # The Breakthrough into the world age ends the lag, so it counts as the end of the age before.
+        nodes["SYSTEM_TECH"] += [GATES[a] for a in GATES if not later(a, self.world)]
+        g = "{GameEffects}"
+        defs, sql = [], {}
+        for value, pct in CATCHUP.items():
+            lines = [f"-- Catch-up research ({value}): +{pct}% toward the nodes of earlier ages, for every major player."]
+            for system in sorted(nodes):
+                for i in range(0, len(nodes[system]), CATCHUP_CHUNK):
+                    mid = f"CA_CATCHUP_{pct}_{system[len('SYSTEM_'):]}_{i // CATCHUP_CHUNK}"
+                    m = ET.Element(f"{g}Modifier", {"id": mid, "collection": "COLLECTION_MAJOR_PLAYERS",
+                                                    "effect": "EFFECT_PLAYER_ADJUST_PROGRESSION_TREE_EFFICIENCY"})
+                    ET.SubElement(m, f"{g}Argument", {"name": "SystemType"}).text = system
+                    ET.SubElement(m, f"{g}Argument", {"name": "ProgressionTreeNodeType"}).text = \
+                        ",".join(nodes[system][i:i + CATCHUP_CHUNK])
+                    ET.SubElement(m, f"{g}Argument", {"name": "Percent"}).text = str(pct)
+                    defs.append(m)
+                    lines.append(f"INSERT INTO GameModifiers (ModifierId) VALUES ('{mid}');")
+            sql[value] = "\n".join(lines) + "\n"
+        return defs, sql, {s: len(v) for s, v in nodes.items()}
+
     def effects_xml(self, defs) -> ET.Element:
         root = ET.Element("{GameEffects}GameEffects")
         for age in GATES:
@@ -674,12 +716,39 @@ def text_xml(fast) -> str:
                  (f"LOC_{GATE_MODIFIER[age]}_DESCRIPTION", f"Enter the {NAME[age]} Age. Opens the {NAME[age]} technologies.")]
     name = MOD_NAME if fast is None else f"{MOD_NAME} (FAST TEST: techs at {fast:.0%} cost)"
     rows += [("LOC_CA_YOUR_AGE", "Your age"), ("LOC_CA_WORLD_AGE", "World age")]
+    rows += [("LOC_CA_CATCHUP_NAME", "Catch-up Research"),
+             ("LOC_CA_CATCHUP_DESCRIPTION",
+              "Continuous Ages: after each world age transition, all techs and civics of earlier ages, and the "
+              "Breakthrough into the world age, are easier to research for every civilization."),
+             ("LOC_CA_CATCHUP_OFF_NAME", "Off"),
+             ("LOC_CA_CATCHUP_OFF_DESCRIPTION", "No change to research."),
+             ("LOC_CA_CATCHUP_50_NAME", "+50%"),
+             ("LOC_CA_CATCHUP_50_DESCRIPTION", "These nodes cost two thirds (about a third fewer turns)."),
+             ("LOC_CA_CATCHUP_100_NAME", "+100%"),
+             ("LOC_CA_CATCHUP_100_DESCRIPTION", "These nodes cost half (half the turns).")]
     rows += [("LOC_MODULE_CONTINUOUS_AGES_NAME", name),
              ("LOC_MODULE_CONTINUOUS_AGES_DESCRIPTION",
               "One continuous game: each civilization has its own age, all ages' content stays available, "
               "and age transitions keep everything (no reset).")]
     body = "\n".join(f'\t\t<Row Tag="{t}">\n\t\t\t<Text>{v}</Text>\n\t\t</Row>' for t, v in rows)
     return f'<?xml version="1.0" encoding="utf-8"?>\n<Database>\n\t<EnglishText>\n{body}\n\t</EnglishText>\n</Database>\n'
+
+
+def config_xml() -> str:
+    """The Catch-up Research setup option (game setup, Game Options)."""
+    values = [("CA_CATCHUP_OFF", "LOC_CA_CATCHUP_OFF")] + [(v, f"LOC_{v}") for v in CATCHUP]
+    rows = "\n".join(f'\t\t<Row Domain="CaCatchUpValues" Value="{v}" Name="{loc}_NAME" Description="{loc}_DESCRIPTION" '
+                     f'SortIndex="{i}"/>' for i, (v, loc) in enumerate(values))
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<Database>
+	<Parameters>
+		<Row ParameterID="{CATCHUP_KEY}" Name="LOC_CA_CATCHUP_NAME" Description="LOC_CA_CATCHUP_DESCRIPTION" Domain="CaCatchUpValues" Hash="0" DefaultValue="CA_CATCHUP_OFF" ConfigurationGroup="Game" ConfigurationKey="{CATCHUP_KEY}" GroupId="GameOptions" ChangeableAfterGameStart="0" SortIndex="148"/>
+	</Parameters>
+	<DomainValues>
+{rows}
+	</DomainValues>
+</Database>
+"""
 
 
 def item_lines(items, indent=5):
@@ -690,6 +759,20 @@ def modinfo_xml(builds: list[WorldBuild], checks: bool) -> str:
     crit = "\n".join(f'\t\t<Criteria id="world-{b.w}">\n\t\t\t<AgeInUse>{b.world}</AgeInUse>\n\t\t</Criteria>' for b in builds)
     groups = []
     for b in builds:
+        for value, item in b.catchup_items.items():
+            cid = f"world-{b.w}-catchup-{CATCHUP[value]}"
+            crit += (f'\n\t\t<Criteria id="{cid}">\n\t\t\t<AgeInUse>{b.world}</AgeInUse>\n'
+                     f'\t\t\t<ConfigurationValueMatches>\n\t\t\t\t<Group>Game</Group>\n'
+                     f'\t\t\t\t<ConfigurationId>{CATCHUP_KEY}</ConfigurationId>\n\t\t\t\t<Value>{value}</Value>\n'
+                     f'\t\t\t</ConfigurationValueMatches>\n\t\t</Criteria>')
+            groups.append(f"""		<ActionGroup id="ca-{b.w}-catchup-{CATCHUP[value]}" scope="game" criteria="{cid}">
+			<Properties><LoadOrder>210</LoadOrder></Properties>
+			<Actions>
+				<UpdateDatabase>
+					<Item>{item}</Item>
+				</UpdateDatabase>
+			</Actions>
+		</ActionGroup>""")
         groups.append(f"""		<ActionGroup id="ca-{b.w}-content" scope="game" criteria="world-{b.w}">
 			<Properties><LoadOrder>100</LoadOrder></Properties>
 			<Actions>
@@ -769,6 +852,9 @@ def modinfo_xml(builds: list[WorldBuild], checks: bool) -> str:
 		</ActionGroup>
 		<ActionGroup id="ca-shell-text" scope="shell" criteria="always">
 			<Actions>
+				<UpdateDatabase>
+					<Item>config/continuous-ages-config.xml</Item>
+				</UpdateDatabase>
 				<UpdateText>
 					<Item>text/en_us/ContinuousAgesText.xml</Item>
 				</UpdateText>
@@ -847,7 +933,9 @@ def fk_set(sim):
 def validate(game, world):
     sim = c.Simulator(game)
     mods = c.load_base_modules(game, include_dlc=True) + [c.parse_modinfo(OUT / f"{MOD_ID}.modinfo")]
-    for path in c.database_items(c.applicable_groups(mods, world)):
+    # With the Catch-up Research option on, so that its rules are validated too (both values have the same rows).
+    config = {f"Game/{CATCHUP_KEY}": "CA_CATCHUP_100"}
+    for path in c.database_items(c.applicable_groups(mods, world, config)):
         sim.apply_file(path)
     return sim
 
@@ -922,10 +1010,19 @@ def main() -> None:
         sql, defs = b.rules()
         (OUT / "data" / b.w).mkdir(parents=True, exist_ok=True)
         (OUT / "data" / b.w / "continuous-ages-rules.sql").write_text(sql, encoding="utf-8")
+        catchup_defs, catchup_sql, b.catchup_nodes = b.catchup(set(b.info["tech"]["removed_repeatable"])
+                                                               | set(b.info["civic"]["removed_repeatable"]))
+        defs += catchup_defs
+        b.catchup_items = {}
+        for value, text in catchup_sql.items():
+            b.catchup_items[value] = f"data/{b.w}/continuous-ages-catchup-{CATCHUP[value]}.sql"
+            (OUT / b.catchup_items[value]).write_text(text, encoding="utf-8")
         write_xml(b.effects_xml(defs), OUT / "data" / b.w / "continuous-ages-effects.xml")
 
     (OUT / "text" / "en_us").mkdir(parents=True, exist_ok=True)
     (OUT / "text" / "en_us" / "ContinuousAgesText.xml").write_text(text_xml(args.fast_test), encoding="utf-8")
+    (OUT / "config").mkdir(parents=True, exist_ok=True)
+    (OUT / "config" / "continuous-ages-config.xml").write_text(config_xml(), encoding="utf-8")
     (OUT / "scripts").mkdir(parents=True, exist_ok=True)
     (OUT / "scripts" / "age-transition-post-load.js").write_text(transition_script(game), encoding="utf-8")
     (OUT / "ui").mkdir(parents=True, exist_ok=True)
@@ -957,6 +1054,7 @@ def main() -> None:
     write_report(builds)
     print(f"Built {OUT}")
     print("\n".join(summary))
+    print("catch-up nodes per world: " + "; ".join(f"{b.w} {b.catchup_nodes}" for b in builds if b.catchup_nodes))
     if args.package:
         bad = [b.w for b in builds if b.result["issues"] or b.result["new_fk"]]
         if bad:

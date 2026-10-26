@@ -440,6 +440,43 @@ function playerCheck(player, turn) {
   if (firstCheckAfterLoad) logConstructibles("CONS", player, { when: "start", age: worldAge });
   if (turn % BUILD_CHECK_EVERY === 0) buildCheck(player, turn);
   if (turn % GATE_CHECK_EVERY === 0) gateCheck(player, turn, civAge);
+  if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) catchupCheck(player, turn);
+}
+
+// Catch-up Research (setup option CaCatchUp): for open nodes of each age (Breakthroughs included), the
+// cost, progress, mastery depth and research turns, with the civ's science and culture. The analysis
+// compares the implied rate ((cost - progress) / turns) with the yield: about 1x for nodes of the world
+// age, and 1.5x or 2x for nodes of earlier ages with the option on.
+const AGE_PREFIX = { AGE_ANTIQUITY: "AQ", AGE_EXPLORATION: "EX", AGE_MODERN: "MO" };
+function nodeSample(player, sys, type) {
+  const hash = GameInfo.ProgressionTreeNodes.lookup(type)?.$hash;
+  const lib = sys === "tech" ? player.Techs : player.Culture;
+  const node = safeCall(() => Game.ProgressionTrees.getNode(player.id, hash));
+  return { n: type.replace(/^NODE_(TECH|CIVIC)_/, ""), d: node?.depthUnlocked, max: node?.maxDepth,
+           prog: node?.progress, cost: safeCall(() => lib?.getNodeCost(hash)), turns: safeCall(() => lib?.getTurnsForNode(hash)) };
+}
+function catchupCheck(player, turn) {
+  const id = player.id;
+  const worldAge = GameInfo.Ages.lookup(Game.age)?.AgeType;
+  const out = { turn, age: worldAge, id, setting: safeCall(() => String(Configuration.getGame().getValue("CaCatchUp"))),
+                science: player.Stats?.getNetYield(YieldTypes.YIELD_SCIENCE) ?? -1,
+                culture: player.Stats?.getNetYield(YieldTypes.YIELD_CULTURE) ?? -1, nodes: {} };
+  for (const g of [GATE, MO_GATE]) if (!hasNode(id, g)) (out.nodes["tech gate"] ??= []).push(nodeSample(player, "tech", g));
+  for (const [sys, prefix] of [["tech", "NODE_TECH_"], ["civic", "NODE_CIVIC_"]]) {
+    for (const age of Object.values(AGE_PREFIX)) {
+      const open = [];
+      for (const node of GameInfo.ProgressionTreeNodes) {
+        const t = node.ProgressionTreeNodeType;
+        if (open.length >= 3 || !t.startsWith(`${prefix}${age}_`) || hasNode(id, t)) continue;
+        if (sys === "civic" && !t.startsWith(`${prefix}${age}_MAIN_`)) continue;
+        const sample = nodeSample(player, sys, t);
+        if (typeof sample.turns === "number" && sample.turns > 0) open.push(sample);
+      }
+      if (open.length) out.nodes[`${sys} ${age}`] = open;
+    }
+  }
+  // One line per node group: the game's log cuts a line at about 1000 characters.
+  for (const [group, nodes] of Object.entries(out.nodes)) log("CATCHUP", JSON.stringify({ ...out, nodes: { [group]: nodes } }));
 }
 
 // Civ abilities behind the gate (rule 5e): the game effects library lists modifiers. Its call shapes
@@ -475,7 +512,7 @@ function gateModsCheck(turn) {
     const id = m?.id ?? m;
     const def = GE.getModifierDefinition(id);
     const name = String(def?.id ?? def?.ModifierId ?? def?.name ?? def?.type ?? "");
-    const kind = ["CA_GATE_", "CA_ATTACH_REGRANT_", "CA_REGRANT_"].find((k) => name.startsWith(k));
+    const kind = ["CA_GATE_", "CA_ATTACH_REGRANT_", "CA_REGRANT_", "CA_CATCHUP_"].find((k) => name.startsWith(k));
     if (!kind) continue;
     const o = GE.getModifierOwner(id);
     const key = `${kind}${String(o?.owner ?? o?.id ?? o)}`;

@@ -81,6 +81,8 @@ Build the mod again after each game patch or DLC (see
 - **AI Civ selection, Age Transition:** Mirroring (default), or Current Civilization Persistence if
   you do not want AI civs to take a new civ before their Breakthrough.
 - **Start age:** Antiquity.
+- **Catch-up Research** (the mod's own option): Off for full snowballing, or +50% / +100% to make
+  techs and civics of earlier ages faster to research after each world transition.
 
 See [Settings](docs/settings.md) for details.
 

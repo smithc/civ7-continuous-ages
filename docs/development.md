@@ -83,6 +83,7 @@ automation, and writes `build/iterations/<time>/REPORT.md` with the logs and a c
 | Age Transition Impact: Regroup | `--suite ContinuousAgesTransitionOriginal.json` | about 16 min |
 | AI civs keep their civs (Persistence) | `--suite ContinuousAgesTransitionPersist.json` or `ContinuousAgesTransitionSeed777Persist.json` | about 16 min |
 | Game speeds | `--suite ContinuousAgesTransitionQuick.json`, `...Epic.json`, `...Marathon.json` (marathon: `--turns 1500 --timeout 240`) | 11 / 20 / 32 min |
+| Catch-up Research at +100% or +50% (to the Exploration transition) | `python iterate.py --suite ContinuousAgesTransitionCatchUp.json --no-fast-test --turns 200 --observe NONE --timeout 60` (or `...CatchUp50.json`) | about 8 min |
 | One human slot (autoplay plays it) | `--suite ContinuousAgesTransitionHuman.json --observe 0` | about 15 min |
 | Earth map | `--suite ContinuousAgesEarth.json` | varies |
 
