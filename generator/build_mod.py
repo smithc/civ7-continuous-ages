@@ -37,6 +37,10 @@ MOD_ID = "continuous-ages"
 MOD_VERSION = "0.2.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
+# Plain text in the modinfo, not text keys: the Steam Workshop uploader shows the modinfo's Name and
+# Description as written (the game's Mods screen accepts both).
+MOD_DESCRIPTION = ("One continuous game: each civilization has its own age, all ages' content stays available, "
+                   "and age transitions keep everything (no reset).")
 REPO = Path(__file__).resolve().parent.parent
 OUT = REPO / "build" / MOD_ID
 MODS_DIR = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
@@ -708,13 +712,12 @@ def free_ship_modifiers(game: Path) -> list[ET.Element]:
     return out
 
 
-def text_xml(fast) -> str:
+def text_xml() -> str:
     rows = []
     for age, gate in GATES.items():
         rows += [(f"LOC_{gate}_NAME", f"{NAME[age]} Breakthrough"),
                  (f"LOC_{gate}_DESCRIPTION", f"Your civilization enters the {NAME[age]} Age. Opens the {NAME[age]} technologies."),
                  (f"LOC_{GATE_MODIFIER[age]}_DESCRIPTION", f"Enter the {NAME[age]} Age. Opens the {NAME[age]} technologies.")]
-    name = MOD_NAME if fast is None else f"{MOD_NAME} (FAST TEST: techs at {fast:.0%} cost)"
     rows += [("LOC_CA_YOUR_AGE", "Your age"), ("LOC_CA_WORLD_AGE", "World age")]
     rows += [("LOC_CA_CATCHUP_NAME", "Catch-up Research"),
              ("LOC_CA_CATCHUP_DESCRIPTION",
@@ -726,10 +729,6 @@ def text_xml(fast) -> str:
              ("LOC_CA_CATCHUP_50_DESCRIPTION", "These nodes cost two thirds (about a third fewer turns)."),
              ("LOC_CA_CATCHUP_100_NAME", "+100%"),
              ("LOC_CA_CATCHUP_100_DESCRIPTION", "These nodes cost half (half the turns).")]
-    rows += [("LOC_MODULE_CONTINUOUS_AGES_NAME", name),
-             ("LOC_MODULE_CONTINUOUS_AGES_DESCRIPTION",
-              "One continuous game: each civilization has its own age, all ages' content stays available, "
-              "and age transitions keep everything (no reset).")]
     body = "\n".join(f'\t\t<Row Tag="{t}">\n\t\t\t<Text>{v}</Text>\n\t\t</Row>' for t, v in rows)
     return f'<?xml version="1.0" encoding="utf-8"?>\n<Database>\n\t<EnglishText>\n{body}\n\t</EnglishText>\n</Database>\n'
 
@@ -755,7 +754,8 @@ def item_lines(items, indent=5):
     return "\n".join("\t" * indent + f"<Item>{i}</Item>" for i in items)
 
 
-def modinfo_xml(builds: list[WorldBuild], checks: bool) -> str:
+def modinfo_xml(builds: list[WorldBuild], checks: bool, fast) -> str:
+    name = MOD_NAME if fast is None else f"{MOD_NAME} (FAST TEST: techs at {fast:.0%} cost)"
     crit = "\n".join(f'\t\t<Criteria id="world-{b.w}">\n\t\t\t<AgeInUse>{b.world}</AgeInUse>\n\t\t</Criteria>' for b in builds)
     groups = []
     for b in builds:
@@ -808,8 +808,8 @@ def modinfo_xml(builds: list[WorldBuild], checks: bool) -> str:
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <Mod id="{MOD_ID}" version="1" xmlns="ModInfo">
 	<Properties>
-		<Name>LOC_MODULE_CONTINUOUS_AGES_NAME</Name>
-		<Description>LOC_MODULE_CONTINUOUS_AGES_DESCRIPTION</Description>
+		<Name>{name}</Name>
+		<Description>{MOD_DESCRIPTION}</Description>
 		<Authors>Continuous Ages project</Authors>
 		<AffectsSavedGames>1</AffectsSavedGames>
 	</Properties>
@@ -1020,7 +1020,7 @@ def main() -> None:
         write_xml(b.effects_xml(defs), OUT / "data" / b.w / "continuous-ages-effects.xml")
 
     (OUT / "text" / "en_us").mkdir(parents=True, exist_ok=True)
-    (OUT / "text" / "en_us" / "ContinuousAgesText.xml").write_text(text_xml(args.fast_test), encoding="utf-8")
+    (OUT / "text" / "en_us" / "ContinuousAgesText.xml").write_text(text_xml(), encoding="utf-8")
     (OUT / "config").mkdir(parents=True, exist_ok=True)
     (OUT / "config" / "continuous-ages-config.xml").write_text(config_xml(), encoding="utf-8")
     (OUT / "scripts").mkdir(parents=True, exist_ok=True)
@@ -1030,7 +1030,7 @@ def main() -> None:
     if args.checks:
         for f in ("ca-checks.js", "ca-automation.js"):
             shutil.copyfile(Path(__file__).parent / "checks" / f, OUT / "ui" / f)
-    (OUT / f"{MOD_ID}.modinfo").write_text(modinfo_xml(builds, args.checks), encoding="utf-8")
+    (OUT / f"{MOD_ID}.modinfo").write_text(modinfo_xml(builds, args.checks, args.fast_test), encoding="utf-8")
 
     # Validate each world age: base modules + DLC + the mod, in load order.
     summary = []
