@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
+from xml.sax.saxutils import escape
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,9 +39,39 @@ MOD_VERSION = "0.2.0"  # the release version (docs/releasing.md); the zip name a
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
 # Plain text in the modinfo, not text keys: the Steam Workshop uploader shows the modinfo's Name and
-# Description as written (the game's Mods screen accepts both).
-MOD_DESCRIPTION = ("One continuous game: each civilization has its own age, all ages' content stays available, "
-                   "and age transitions keep everything (no reset).")
+# Description as written (the game's Mods screen accepts both). No Steam markup: the Mods screen
+# shows the same text.
+MOD_DESCRIPTION = """One continuous game. Each civilization moves through the ages at its own pace, and nothing resets at an age transition. A strong civilization can keep its lead and snowball.
+
+HOW IT WORKS
+- Your own age: one joined tech tree with two Breakthrough techs. Research the Exploration Breakthrough and the Modern Breakthrough to enter the next age, when you are ready. A small banner shows "Your age / World age".
+- The world still moves on: the world age changes at the normal time. Crises, legacy paths, treasure fleets, the Distant Lands and victories start with the world age, as in the base game.
+- No reset: cities stay cities, armies keep their units and promotions, gold is not capped, old resources stay, and your techs, civics, policies and buildings stay.
+- Content waits for your age: later-age techs, civics, units, buildings, unique items and civ abilities need that age's Breakthrough, also after the world moves on.
+- Units upgrade across ages, for example Phalanx to Swordsman and Pikeman to Line Infantry.
+
+CATCH-UP RESEARCH (OPTIONAL)
+Set it in the game setup: Advanced Options, Game Options, Catch-up Research (below Age Transition Impact). Choose before the game starts; you cannot change it later.
+- Off (default): no catch-up, full snowballing.
+- +50%: after each world age transition, the techs and civics of earlier ages, and the Breakthrough into the new world age, cost two thirds.
+- +100%: they cost half.
+Only a civ that still needs those techs and civics gains from it, so it helps civs that are behind the world to catch up. AI civs get it too.
+
+RECOMMENDED SETTINGS
+- Age Transition Impact: Continuity.
+- Start age: Antiquity.
+- AI civ selection at age transition: Mirroring (default), or Current Civilization Persistence.
+
+STATUS
+Playable, in testing. Full AI games pass all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.
+
+COMPATIBILITY
+- Version {mod_version}, built for Civilization VII {game_version}, with the base game and DLC civilizations.
+- Affects saved games: enable it before you start a new game.
+- Replaces the game's age transition script. Other mods that change that script will conflict.
+- Single player. Multiplayer is not tested.
+
+Documentation, source and known limits: https://github.com/smithc/civ7-continuous-ages"""
 REPO = Path(__file__).resolve().parent.parent
 OUT = REPO / "build" / MOD_ID
 MODS_DIR = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
@@ -754,7 +785,7 @@ def item_lines(items, indent=5):
     return "\n".join("\t" * indent + f"<Item>{i}</Item>" for i in items)
 
 
-def modinfo_xml(builds: list[WorldBuild], checks: bool, fast) -> str:
+def modinfo_xml(builds: list[WorldBuild], checks: bool, fast, game: Path) -> str:
     name = MOD_NAME if fast is None else f"{MOD_NAME} (FAST TEST: techs at {fast:.0%} cost)"
     crit = "\n".join(f'\t\t<Criteria id="world-{b.w}">\n\t\t\t<AgeInUse>{b.world}</AgeInUse>\n\t\t</Criteria>' for b in builds)
     groups = []
@@ -809,7 +840,7 @@ def modinfo_xml(builds: list[WorldBuild], checks: bool, fast) -> str:
 <Mod id="{MOD_ID}" version="1" xmlns="ModInfo">
 	<Properties>
 		<Name>{name}</Name>
-		<Description>{MOD_DESCRIPTION}</Description>
+		<Description>{escape(MOD_DESCRIPTION.format(mod_version=MOD_VERSION, game_version=game_version(game)["product_version"] or "(unknown version)"))}</Description>
 		<Authors>Continuous Ages project</Authors>
 		<AffectsSavedGames>1</AffectsSavedGames>
 	</Properties>
@@ -1030,7 +1061,7 @@ def main() -> None:
     if args.checks:
         for f in ("ca-checks.js", "ca-automation.js"):
             shutil.copyfile(Path(__file__).parent / "checks" / f, OUT / "ui" / f)
-    (OUT / f"{MOD_ID}.modinfo").write_text(modinfo_xml(builds, args.checks, args.fast_test), encoding="utf-8")
+    (OUT / f"{MOD_ID}.modinfo").write_text(modinfo_xml(builds, args.checks, args.fast_test, game), encoding="utf-8")
 
     # Validate each world age: base modules + DLC + the mod, in load order.
     summary = []
