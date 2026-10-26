@@ -36,6 +36,7 @@ your game is somewhere else.
 | `generator/tools/crashstack.py` | Names the game frames of a crash dump's stack. |
 | `docs/` | The documentation. |
 | `workshop/preview.jpg` | The Steam Workshop preview image (not part of the mod). |
+| `workshop/description.bbcode` | The Steam Workshop description, with Steam formatting (paste it on the Workshop page). |
 | `LICENSE` | MIT License. |
 
 ## How the mod is built

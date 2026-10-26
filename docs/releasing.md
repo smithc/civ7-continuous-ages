@@ -76,6 +76,10 @@ and other Steam games:
 
 Update this section with the real steps after the first upload.
 
+The uploader takes the first description from the modinfo (plain text, because the game's Mods
+screen shows the same text). After the upload, replace the Workshop description with
+`workshop/description.bbcode` (Steam formatting). Update its version line for each release.
+
 The preview image is `workshop/preview.jpg`: a square JPEG, 1254 x 1254, 708 KB. Steam needs a preview
 image under 1 MB. It is not part of the mod or the release zip.
 
