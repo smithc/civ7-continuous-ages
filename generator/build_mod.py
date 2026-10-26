@@ -34,7 +34,7 @@ import classification as cls
 from build_test1 import transition_script, write_xml, EXCLUDE_PATTERNS, TEXT_EXCLUDE
 
 MOD_ID = "continuous-ages"
-MOD_VERSION = "0.1.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
+MOD_VERSION = "0.2.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
 REPO = Path(__file__).resolve().parent.parent

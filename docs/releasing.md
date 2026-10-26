@@ -69,12 +69,15 @@ and other Steam games:
 
 1. In Steam, open Library, Tools, and install the Civilization VII development tools (the Modding
    SDK).
-2. Use its Workshop upload tool. Give it the mod folder, a title, a description, a preview image and
-   the visibility (start with Private or Friends only to test).
+2. Use its Workshop upload tool. Give it the mod folder, a title, a description, the preview image
+   (`workshop/preview.jpg`) and the visibility (start with Private or Friends only to test).
 3. Subscribe to the item from a second account or after removing the local copy, and check that the
    game loads it.
 
 Update this section with the real steps after the first upload.
+
+The preview image is `workshop/preview.jpg`: a square JPEG, 1254 x 1254, 708 KB. Steam needs a preview
+image under 1 MB. It is not part of the mod or the release zip.
 
 Workshop description checklist:
 
@@ -88,6 +91,7 @@ Workshop description checklist:
 
 | Mod version | Game version (Steam build) | DLC at build | Tested | Notes |
 | --- | --- | --- | --- | --- |
+| 0.2.0 | 1.5.0.44 (25516395) | all (78 folders) | 0.1.0 tests (rules unchanged with the option off); AI three-age test with Catch-up +100%; Catch-up +50% and +100% to the Exploration transition | Adds the Catch-up Research setup option |
 | 0.1.0 | 1.5.0.44 (25516395) | all (78 folders) | AI three-age tests, all game speeds; short human test | First release candidate |
 
 ## Versions
