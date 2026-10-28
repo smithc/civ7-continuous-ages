@@ -35,7 +35,7 @@ import classification as cls
 from build_test1 import transition_script, write_xml, EXCLUDE_PATTERNS, TEXT_EXCLUDE
 
 MOD_ID = "continuous-ages"
-MOD_VERSION = "0.2.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
+MOD_VERSION = "0.2.1"  # the release version (docs/releasing.md); the zip name and build-info.json use it
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
 # Plain text in the modinfo, not text keys: the Steam Workshop uploader shows the modinfo's Name and
@@ -46,7 +46,7 @@ MOD_DESCRIPTION = """One continuous game. Each civilization moves through the ag
 HOW IT WORKS
 - Your own age: one joined tech tree with two Breakthrough techs. Research the Exploration Breakthrough and the Modern Breakthrough to enter the next age, when you are ready. A small banner shows "Your age / World age".
 - The world still moves on: the world age changes at the normal time. Crises, legacy paths, treasure fleets, the Distant Lands and victories start with the world age, as in the base game.
-- No reset: cities stay cities, armies keep their units and promotions, gold is not capped, old resources stay, and your techs, civics, policies and buildings stay.
+- No reset: cities stay cities, armies keep all their units, gold is not capped, old resources stay, and your techs, civics, policies and buildings stay.
 - Content waits for your age: later-age techs, civics, units, buildings, unique items and civ abilities need that age's Breakthrough, also after the world moves on.
 - Units upgrade across ages, for example Phalanx to Swordsman and Pikeman to Line Infantry.
 
@@ -453,10 +453,10 @@ class WorldBuild:
         lines += [f"INSERT OR IGNORE INTO UnitUpgrades (Unit, UpgradeUnit) SELECT '{u}', '{v}' WHERE EXISTS "
                   f"(SELECT 1 FROM Units WHERE UnitType = '{u}') AND EXISTS (SELECT 1 FROM Units WHERE UnitType = '{v}');"
                   for u, v in self.cross_upgrades]
-        lines += ["", "-- 2c. Units: every unit is kept as it is at a world transition (type, promotions, position).",
-                  "--     Without this the engine keeps only commanders and remakes other military units as the",
-                  "--     new age's type for their class (Unit_ShadowReplacements); a civ that cannot build that",
-                  "--     type (behind its gate) lost the unit, and every remade unit lost its promotions.",
+        lines += ["", "-- 2c. Units: every unit is kept as it is at a world transition (type and position).",
+                  "--     Without this the engine keeps only commanders (with their promotions; only commanders",
+                  "--     have promotions) and remakes other military units as the new age's type for their class",
+                  "--     (Unit_ShadowReplacements); a civ that cannot build that type (behind its gate) lost the unit.",
                   "INSERT OR IGNORE INTO Unit_TransitionRetains (UnitType) SELECT UnitType FROM Units;"]
         # (Removed: rule 2e, ObsoletesTraditionType = NULL. It did not stop the Modern-load policy loss
         # (iteration 20261025-001907) and made about 100 tradition upgrades stack inside each age.)
@@ -864,6 +864,7 @@ def modinfo_xml(builds: list[WorldBuild], checks: bool, fast, game: Path) -> str
 			<Actions>
 				<UIScripts>
 					<Item>ui/ca-civ-age.js</Item>
+					<Item>ui/ca-tree-layout.js</Item>
 				</UIScripts>
 			</Actions>
 		</ActionGroup>
@@ -1057,9 +1058,10 @@ def main() -> None:
     (OUT / "scripts").mkdir(parents=True, exist_ok=True)
     (OUT / "scripts" / "age-transition-post-load.js").write_text(transition_script(game), encoding="utf-8")
     (OUT / "ui").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(Path(__file__).parent / "ui" / "ca-civ-age.js", OUT / "ui" / "ca-civ-age.js")
+    for f in ("ca-civ-age.js", "ca-tree-layout.js"):
+        shutil.copyfile(Path(__file__).parent / "ui" / f, OUT / "ui" / f)
     if args.checks:
-        for f in ("ca-checks.js", "ca-automation.js"):
+        for f in ("ca-checks.js", "ca-automation.js", "ca-ui-test.js"):
             shutil.copyfile(Path(__file__).parent / "checks" / f, OUT / "ui" / f)
     (OUT / f"{MOD_ID}.modinfo").write_text(modinfo_xml(builds, args.checks, args.fast_test, game), encoding="utf-8")
 
@@ -1096,6 +1098,11 @@ def main() -> None:
             if (MODS_DIR / old).exists():
                 shutil.rmtree(MODS_DIR / old)
         shutil.copytree(OUT, MODS_DIR / MOD_ID)
+        # The local copy has the same mod id as the Workshop copy; the name tells them apart in the
+        # Mods screen. Only the installed copy changes, so the release zip keeps the plain name.
+        modinfo = MODS_DIR / MOD_ID / f"{MOD_ID}.modinfo"
+        modinfo.write_text(modinfo.read_text(encoding="utf-8").replace(
+            f"<Name>{MOD_NAME}", f"<Name>{MOD_NAME} - DEV", 1), encoding="utf-8")
         print(f"Installed to {MODS_DIR / MOD_ID}")
 
 

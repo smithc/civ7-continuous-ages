@@ -72,7 +72,7 @@ replaces the game's transition script with a copy that has the reset steps remov
 | Item | Base game | Continuous Ages |
 | --- | --- | --- |
 | Techs and civics | Each age has new trees | Kept (one joined tree) |
-| Units | Most are remade as the new age's types; promotions lost | Kept as they are: type, promotions, level, position |
+| Units | Commanders are kept with their promotions (only commanders have promotions); other military units are remade as the new age's types, and units that the armies do not take back can be lost | Kept as they are: type and position; commanders with their promotions |
 | Cities | All cities except the capital become towns | Cities stay cities |
 | Gold and influence | Capped | Not capped |
 | Buildings and improvements | Kept; the base game's rules for older-age buildings apply | Kept; the same rules apply |

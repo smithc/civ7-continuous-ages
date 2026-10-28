@@ -23,7 +23,7 @@ lead and snowball.
 
 - **Your own age.** Research the Exploration Breakthrough and the Modern Breakthrough to enter the
   next age, at your own pace. The world age still changes at the normal time.
-- **No reset at an age transition.** Cities stay cities, armies stay with their promotions, gold is
+- **No reset at an age transition.** Cities stay cities, armies keep all their units, gold is
   not capped, old resources stay, and earned policies stay.
 - **Content waits for your age.** Later-age techs, civics, units, buildings, unique items and civ
   abilities need that age's Breakthrough, even after the world has moved on.

@@ -1,0 +1,8 @@
+{
+	"Scripts": [
+		"fs://game/base-standard/ui/automation/automation-test-support.js",
+		"fs://game/base-standard/ui/automation/automation-test-load-game.js",
+		"fs://game/continuous-ages/ui/ca-ui-test.js"
+	],
+	"Tests": ["Tests=( { Test=LoadGame, SaveName=CA_AQ135 }, { Test=CAUITest }, { Test=QuitApp } )"]
+}
