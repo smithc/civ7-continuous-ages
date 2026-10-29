@@ -3,10 +3,10 @@ import { Layout } from '/core/ui/utilities/utilities-layout.js';
 import '/base-standard/ui/tree-grid/tree-line.js';
 
 // Continuous Ages: tree columns from the prereqs inside the tree only.
-// The first civics of an age need that age's Breakthrough tech, a prereq in the tech tree. The engine
-// counts it in each node's treeDepth, and the tree screen (tree-grid.js) uses treeDepth as the column,
-// so the first Modern civics stood 3 columns after the last Exploration civics, with stray lines in the
-// 2 empty columns. This sets each node with a parent in the tree to its deepest parent + 1. When no
+// When the first civics of an age needed that age's Breakthrough tech (a prereq in the tech tree), the
+// engine counted it in each node's treeDepth, and the tree screen (tree-grid.js) uses treeDepth as the
+// column: the first Modern civics stood 3 columns after the last Exploration civics, with stray lines in
+// the 2 empty columns. The trees now have no prereq outside the tree; this stays as a guard. This sets each node with a parent in the tree to its deepest parent + 1. When no
 // prereq is outside the tree, the result is the engine's own treeDepth.
 const fixedTrees = new Set();
 
@@ -20,11 +20,14 @@ function inTreeDepths(tree, nodes) {
     }
   }
   // An in-tree parent always has a lower engine depth than its child, so this order puts parents first.
+  // A node without an in-tree parent goes to the first column (a prereq outside the tree would also
+  // count in its engine treeDepth).
   const depth = new Map();
+  const first = Math.min(...nodes.map((n) => n.treeDepth));
   let moved = 0;
   for (const node of [...nodes].sort((a, b) => a.treeDepth - b.treeDepth)) {
     const known = (parents.get(node.nodeType) ?? []).filter((p) => depth.has(p));
-    const d = known.length ? Math.max(...known.map((p) => depth.get(p))) + 1 : node.treeDepth;
+    const d = known.length ? Math.max(...known.map((p) => depth.get(p))) + 1 : first;
     depth.set(node.nodeType, d);
     if (d !== node.treeDepth) {
       node.treeDepth = d;

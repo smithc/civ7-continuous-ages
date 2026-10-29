@@ -1,7 +1,8 @@
 # Continuous Ages (Civilization VII mod)
 
 One continuous game. Each civilization has its own age, set by two Breakthrough techs in one joined
-tech tree. The world still goes through the base game's age transitions, but nothing resets: units,
+tech tree; the joined civic tree has its own two Breakthroughs. The world still goes through the
+base game's age transitions, but nothing resets: units,
 techs, civics, cities, buildings, policies and gold are kept, so a strong civilization can keep its
 lead and snowball.
 
@@ -23,10 +24,13 @@ lead and snowball.
 
 - **Your own age.** Research the Exploration Breakthrough and the Modern Breakthrough to enter the
   next age, at your own pace. The world age still changes at the normal time.
+- **Civics have their own Breakthroughs.** Research the civic Breakthrough of an age with culture to
+  open that age's civics, even before your tech Breakthrough.
 - **No reset at an age transition.** Cities stay cities, armies keep all their units, gold is
   not capped, old resources stay, and earned policies stay.
-- **Content waits for your age.** Later-age techs, civics, units, buildings, unique items and civ
-  abilities need that age's Breakthrough, even after the world has moved on.
+- **Content waits for your age.** Later-age techs, units, buildings, unique items and civ abilities
+  need that age's Breakthrough tech, and later-age civics need the civic Breakthrough, even after the
+  world has moved on.
 - **World systems stay with the world age.** Crises, legacy paths, treasure fleets, the Distant Lands
   and victories start at the world transition, as in the base game.
 - **Units upgrade across ages.** For example Phalanx to Swordsman, and Pikeman to Line Infantry.

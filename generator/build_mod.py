@@ -87,6 +87,11 @@ TECH_TREES = ["TREE_TECHS_AQ", "TREE_TECHS_EX", "TREE_TECHS_MO"]
 CIVIC_TREES = ["TREE_CIVICS_AQ_MAIN", "TREE_CIVICS_EX_MAIN", "TREE_CIVICS_MO_MAIN"]
 GATES = {"AGE_EXPLORATION": "NODE_TECH_CA_EXPLORATION_BREAKTHROUGH", "AGE_MODERN": "NODE_TECH_CA_MODERN_BREAKTHROUGH"}
 GATE_MODIFIER = {a: f"MOD_CA_{NAME[a].upper()}_BREAKTHROUGH" for a in GATES}
+# The civic tree's own Breakthrough of each age, researched with culture. Two gates, one per tree: the
+# tech Breakthrough opens the techs and sets the civ's age (its content: units, abilities, baseline);
+# the civic Breakthrough opens the civics and the civ's unique civic trees.
+CIVIC_GATES = {a: f"NODE_CIVIC_CA_{NAME[a].upper()}_BREAKTHROUGH" for a in GATES}
+CIVIC_GATE_MODIFIER = {a: f"MOD_CA_{NAME[a].upper()}_CIVICS" for a in GATES}
 GATE_COST_FACTOR = 1.2
 # Catch-up research (game setup option): every node of an age before the world age, and the
 # Breakthrough into the world age, costs 1 / (1 + Percent/100): +50% two thirds, +100% half
@@ -291,10 +296,12 @@ class WorldBuild:
                     self.text_items.append(rel_item)
 
     # -- rules -----------------------------------------------------------------
-    def tree_chain(self, trees: list[str], gates: dict | None, prefix: str):
-        """SQL that joins the main trees of all ages into trees[0], in age order.
-        With gates, a gate node sits between the ages; otherwise each age's first nodes
-        need the previous age's last nodes."""
+    def tree_chain(self, trees: list[str], gates: dict, gate_modifier: dict, prefix: str):
+        """SQL that joins the main trees of all ages into trees[0], in age order. A gate node sits
+        between the ages: it needs the previous age's last nodes, and the age's first nodes need it.
+        No prereq goes to another tree: the engine never opens one. Before, the first civics needed the
+        Breakthrough tech; no civ ever had an Exploration or Modern civic (a player report of
+        2026-10-29; iterations 20261029-141650 and 142316)."""
         q = lambda sql, *a: self.sim.db.execute(sql, a).fetchall()
         canon = trees[0]
         nodes = {t: [r[0] for r in q("SELECT ProgressionTreeNodeType FROM ProgressionTreeNodes "
@@ -312,35 +319,23 @@ class WorldBuild:
             has = {n for n, p in prereqs}
             roots = sorted(n for n in cur if n not in has)
             age = AGES[i]
-            if gates:
-                gate = gates[age]
-                cost = q(f"SELECT MAX(Cost) FROM ProgressionTreeNodes WHERE ProgressionTree = ? "
-                         f"AND Repeatable = 0", trees[i - 1])[0][0] or 100
-                gate_cost = int(round(cost * GATE_COST_FACTOR / 5.0) * 5)
-                icon = q("SELECT IconString FROM ProgressionTreeNodes WHERE Repeatable = 1 AND ProgressionTree = ?",
-                         trees[i - 1])
-                icon = icon[0][0] if icon else "tech_futuretech"
-                lines += [f"-- {NAME[age]} Breakthrough gate (cost {gate_cost}).",
-                          f"INSERT INTO Types (Type, Kind) VALUES ('{gate}', 'KIND_TREE_NODE');",
-                          "INSERT INTO ProgressionTreeNodes (ProgressionTreeNodeType, ProgressionTree, Cost, Name, Description, IconString) "
-                          f"VALUES ('{gate}', '{canon}', {gate_cost}, 'LOC_{gate}_NAME', 'LOC_{gate}_DESCRIPTION', '{icon}');",
-                          "-- A node needs one unlock level, or it is not drawn and is researched again every turn.",
-                          "INSERT INTO ProgressionTreeNodeUnlocks (ProgressionTreeNodeType, TargetKind, TargetType, UnlockDepth) "
-                          f"VALUES ('{gate}', 'KIND_MODIFIER', '{GATE_MODIFIER[age]}', 1);"]
-                lines += [f"INSERT INTO ProgressionTreePrereqs (Node, PrereqNode) VALUES ('{gate}', '{n}');" for n in leaves]
-                lines += [f"INSERT INTO ProgressionTreePrereqs (Node, PrereqNode) VALUES ('{n}', '{gate}');" for n in roots]
-                info[age] = {"gate_cost": gate_cost, "leaves": leaves, "roots": roots}
-            else:
-                lines += [f"-- {NAME[age]} {prefix}: first nodes need the previous age's last nodes,"]
-                lines += [f"INSERT INTO ProgressionTreePrereqs (Node, PrereqNode) VALUES ('{r}', '{l}');"
-                          for r in roots for l in leaves]
-                # and the civ's tech breakthrough of that age (a prereq across the two trees; both use
-                # PrereqFormat AND). Without it, a civ entered later-age civics (museum, wonders)
-                # before its breakthrough (iteration 20261024-185219).
-                lines += [f"--   and the {NAME[age]} Breakthrough tech."]
-                lines += [f"INSERT INTO ProgressionTreePrereqs (Node, PrereqNode) VALUES ('{r}', '{GATES[age]}');"
-                          for r in roots]
-                info[age] = {"leaves": leaves, "roots": roots, "gate": GATES[age]}
+            gate = gates[age]
+            cost = q(f"SELECT MAX(Cost) FROM ProgressionTreeNodes WHERE ProgressionTree = ? "
+                     f"AND Repeatable = 0", trees[i - 1])[0][0] or 100
+            gate_cost = int(round(cost * GATE_COST_FACTOR / 5.0) * 5)
+            icon = q("SELECT IconString FROM ProgressionTreeNodes WHERE Repeatable = 1 AND ProgressionTree = ?",
+                     trees[i - 1])
+            icon = icon[0][0] if icon else "tech_futuretech"
+            lines += [f"-- {NAME[age]} Breakthrough gate of the {prefix} (cost {gate_cost}).",
+                      f"INSERT INTO Types (Type, Kind) VALUES ('{gate}', 'KIND_TREE_NODE');",
+                      "INSERT INTO ProgressionTreeNodes (ProgressionTreeNodeType, ProgressionTree, Cost, Name, Description, IconString) "
+                      f"VALUES ('{gate}', '{canon}', {gate_cost}, 'LOC_{gate}_NAME', 'LOC_{gate}_DESCRIPTION', '{icon}');",
+                      "-- A node needs one unlock level, or it is not drawn and is researched again every turn.",
+                      "INSERT INTO ProgressionTreeNodeUnlocks (ProgressionTreeNodeType, TargetKind, TargetType, UnlockDepth) "
+                      f"VALUES ('{gate}', 'KIND_MODIFIER', '{gate_modifier[age]}', 1);"]
+            lines += [f"INSERT INTO ProgressionTreePrereqs (Node, PrereqNode) VALUES ('{gate}', '{n}');" for n in leaves]
+            lines += [f"INSERT INTO ProgressionTreePrereqs (Node, PrereqNode) VALUES ('{n}', '{gate}');" for n in roots]
+            info[age] = {"gate_cost": gate_cost, "leaves": leaves, "roots": roots}
         lines += [f"UPDATE ProgressionTreeNodes SET ProgressionTree = '{canon}', UILayoutColumn = NULL, UILayoutRow = NULL "
                   f"WHERE ProgressionTree IN ({', '.join(repr(t) for t in trees)});"]
         for n in removed:
@@ -409,8 +404,8 @@ class WorldBuild:
         # trees therefore take the world age.
         lines += [f"UPDATE ProgressionTrees SET AgeType = '{self.world}' "
                   "WHERE ProgressionTreeType IN ('TREE_TECHS_AQ', 'TREE_CIVICS_AQ_MAIN');"]
-        tech_lines, tech_info = self.tree_chain(TECH_TREES, GATES, "techs")
-        civic_lines, civic_info = self.tree_chain(CIVIC_TREES, None, "civics")
+        tech_lines, tech_info = self.tree_chain(TECH_TREES, GATES, GATE_MODIFIER, "techs")
+        civic_lines, civic_info = self.tree_chain(CIVIC_TREES, CIVIC_GATES, CIVIC_GATE_MODIFIER, "civics")
         lines += tech_lines + [""] + civic_lines + [""]
         lines += ["-- 2. Building-age rule: the earlier of the constructible's age and the world age."]
         later_ages = [a for a in AGES if later(a, self.world)]
@@ -421,13 +416,25 @@ class WorldBuild:
             for kind, types in kinds.items():
                 lines += [f"INSERT OR IGNORE INTO ProgressionTreeNodeUnlocks (ProgressionTreeNodeType, TargetKind, TargetType, "
                           f"UnlockDepth) VALUES ('{GATES[age]}', '{kind}', '{t}', 1);" for t in types]
-        lines += ["", "-- 2d. Civ content of a later age needs the gate of the civ's age: the first nodes of the",
-                  "--     civ's unique civic tree, and its unique items that have no unlock row. (Guarded: the",
-                  "--     tree or item may not be in this world's data.)"]
+        lines += ["", "-- 2d. Civ content of a later age: the civ's unique items that have no unlock row need the",
+                  "--     Breakthrough tech. (Guarded: the item may not be in this world's data.)"]
+        # The later-age civic trees (unique, Test of Time, branches, ideologies) have no prereq gate. Their
+        # first nodes needed the Breakthrough tech, but the engine never opens a prereq in another tree,
+        # tech or civic: no civ ever researched them, ideologies included (iterations 20261029-141650,
+        # 142802). Not RevealRequirementSetId either: a reveal set adds a tree, it does not hide one (all
+        # civs saw the Exploration trees of other civs; iteration 20261029-142316). The trees come from
+        # reveal modifiers instead: a unique tree's is a civ ability, gated by rule 5e (tech gate); the
+        # Test of Time tree's by rule 5i (civic gate). Branch trees keep their own conditions.
+        # A branch tree's reveal set can need a world age (Theology: the Exploration age). In a later world
+        # the tree was gone, its civics counted as not complete, and rule 5c could not keep its policies
+        # (Evangelism lost at the Modern load; iterations 20261029-144431, 150344). Without the age
+        # requirement the tree stays, as the civ's other content does.
+        lines += ["-- 2h. Civic trees do not need a world age to show (their other reveal requirements stay).",
+                  "DELETE FROM RequirementSetRequirements WHERE RequirementSetId IN (SELECT RevealRequirementSetId FROM "
+                  "ProgressionTrees WHERE RevealRequirementSetId IS NOT NULL) AND RequirementId IN (SELECT RequirementId "
+                  "FROM Requirements WHERE RequirementType = 'REQUIREMENT_GAME_AGE_TYPE_MATCH');"]
         for age, content in self.civ_content.items():
             gate = GATES[age]
-            lines += [f"INSERT INTO ProgressionTreePrereqs (Node, PrereqNode) SELECT '{n}', '{gate}' WHERE EXISTS "
-                      f"(SELECT 1 FROM ProgressionTreeNodes WHERE ProgressionTreeNodeType = '{n}');" for n in content["roots"]]
             for kind, types in content["items"].items():
                 lines += [f"INSERT OR IGNORE INTO ProgressionTreeNodeUnlocks (ProgressionTreeNodeType, TargetKind, TargetType, "
                           f"UnlockDepth) SELECT '{gate}', '{kind}', '{t}', 1 WHERE EXISTS (SELECT 1 FROM Types WHERE Type = '{t}');"
@@ -480,7 +487,7 @@ class WorldBuild:
         # player that has completed its civic (EFFECT_PLAYER_UNLOCK_TRADITION, as the base game's crisis
         # stories use it).
         keep = policy_keep_modifiers(self.policy_unlocks)
-        lines += ["-- 5c. Policies stay: each main-tree policy is unlocked again for a player that has its civic."]
+        lines += ["-- 5c. Policies stay: each main-tree and branch-tree policy is unlocked again for a player that has its civic."]
         lines += [f"INSERT INTO GameModifiers (ModifierId) VALUES ('{m.get('id')}');" for m in keep]
         lines += [""]
         defs += keep
@@ -497,10 +504,10 @@ class WorldBuild:
         # Legacy cards at a world transition can grant a node of the new age (Modern: Academics, Steam
         # Engine, Military Science, three main-tree civics; Exploration: five). A civ behind its gate
         # got it at the load (iteration 20261025-075443: Maya, civ age Exploration, a Modern tech at
-        # Modern turn 1). The card's modifier is a copy with that age's Breakthrough as an owner
-        # requirement; run once, it grants the node when the civ reaches its gate.
+        # Modern turn 1). The card's modifier is a copy with that age's Breakthrough of the node's tree
+        # (tech or civic) as an owner requirement; run once, it grants the node when the civ reaches it.
         cards = card_grant_modifiers(self.game)
-        lines += ["-- 5f. Legacy cards that grant a node of the new age wait for that age's Breakthrough."]
+        lines += ["-- 5f. Legacy cards that grant a node of the new age wait for that age's Breakthrough (tech or civic)."]
         lines += [f"UPDATE AdvancedStartCardEffects SET EffectType = '{m.get('id')}' WHERE EffectType = '{m.get('id')[len('CA_CARD_'):]}';" for m in cards]
         lines += [""]
         defs += cards
@@ -509,6 +516,22 @@ class WorldBuild:
         lines += [f"UPDATE TraitModifiers SET ModifierId = '{m.get('id')}' WHERE ModifierId = '{m.get('id')[3:]}';" for m in ships]
         lines += [""]
         defs += ships
+        # The Test of Time tree of each later age comes from a modifier of the shared anachronistic trait
+        # (a civ that keeps its civ), which rule 5e leaves out. Its civics unlocked later-age wonders for a
+        # civ behind both gates (Rome: Notre Dame and Taj Mahal, iteration 20261029-152811), and each
+        # age's data attaches only its own tree, so the previous tree and its completed civics were gone
+        # at the next load (Egypt 28 -> 22 civics). The copy needs the civic Breakthrough of the tree's
+        # age, and later worlds attach it too, so the tree stays while the civ keeps its civ.
+        tot = tot_reveal_modifiers(self.game)
+        lines += ["-- 5i. Test of Time civic trees: after the civ's civic Breakthrough of that age; kept in later worlds."]
+        for age, (trait, base_id, m) in tot.items():
+            if age == self.world:
+                lines.append(f"UPDATE TraitModifiers SET ModifierId = '{m.get('id')}' WHERE TraitType = '{trait}' AND ModifierId = '{base_id}';")
+            elif later(self.world, age):
+                lines.append(f"INSERT OR IGNORE INTO TraitModifiers (TraitType, ModifierId) SELECT '{trait}', '{m.get('id')}' "
+                             f"WHERE EXISTS (SELECT 1 FROM Traits WHERE TraitType = '{trait}');")
+            defs.append(m)
+        lines += [""]
         if self.world == "AGE_ANTIQUITY":
             lines += ["-- 6. Exploration ocean movement rule (deep ocean ends the turn until Shipbuilding).",
                       "--    Only units that may enter deep ocean are affected: civs past their breakthrough."]
@@ -521,9 +544,11 @@ class WorldBuild:
                         lines.append(f"INSERT OR IGNORE INTO UnitMovementClassObstacles ({cols}) VALUES ({vals});")
             lines.append("")
         if args.fast_test is not None:
-            lines += [f"-- 7. Fast test: all techs of the joined tree cost {args.fast_test:g} x normal (minimum 1).",
+            # Civics too, so a short run reaches the civic gates (with techs only, no civ finished the
+            # Antiquity civics in 80 turns; iteration 20261029-141102).
+            lines += [f"-- 7. Fast test: all techs and main civics of the joined trees cost {args.fast_test:g} x normal (minimum 1).",
                       f"UPDATE ProgressionTreeNodes SET Cost = MAX(1, CAST(Cost * {args.fast_test} AS INTEGER)) "
-                      "WHERE ProgressionTree = 'TREE_TECHS_AQ';", ""]
+                      "WHERE ProgressionTree IN ('TREE_TECHS_AQ', 'TREE_CIVICS_AQ_MAIN');", ""]
         self.info = {"tech": tech_info, "civic": civic_info, "baseline": baseline_report}
         return "\n".join(lines), defs
 
@@ -545,6 +570,7 @@ class WorldBuild:
                 nodes[system].append(n)
         # The Breakthrough into the world age ends the lag, so it counts as the end of the age before.
         nodes["SYSTEM_TECH"] += [GATES[a] for a in GATES if not later(a, self.world)]
+        nodes["SYSTEM_CULTURE"] += [CIVIC_GATES[a] for a in GATES if not later(a, self.world)]
         g = "{GameEffects}"
         defs, sql = [], {}
         for value, pct in CATCHUP.items():
@@ -565,12 +591,13 @@ class WorldBuild:
 
     def effects_xml(self, defs) -> ET.Element:
         root = ET.Element("{GameEffects}GameEffects")
-        for age in GATES:
-            m = ET.SubElement(root, "{GameEffects}Modifier", {"id": GATE_MODIFIER[age], "collection": "COLLECTION_OWNER",
+        markers = [GATE_MODIFIER[a] for a in GATES] + [CIVIC_GATE_MODIFIER[a] for a in GATES]
+        for mid in markers:
+            m = ET.SubElement(root, "{GameEffects}Modifier", {"id": mid, "collection": "COLLECTION_OWNER",
                                                              "effect": "EFFECT_DO_NOTHING"})
             s = ET.SubElement(m, "{GameEffects}String", {"context": "Description"})
-            s.text = f"LOC_{GATE_MODIFIER[age]}_DESCRIPTION"
-        known = {GATE_MODIFIER[a] for a in GATES}
+            s.text = f"LOC_{mid}_DESCRIPTION"
+        known = set(markers)
         for el in defs:
             if el.get("id") not in known:
                 known.add(el.get("id"))
@@ -604,17 +631,18 @@ def cross_age_upgrades(sims: dict) -> list[tuple[str, str]]:
 
 
 def policy_unlocks(sims: dict) -> list[tuple[str, str, int]]:
-    """(main-tree civic node, policy, unlock depth) of all ages: the policy slot traditions that a
-    main-tree civic unlocks (crisis policies left out). The depth matters: 17 policies need the
-    civic's mastery (UnlockDepth 2), and depth 1 would give them early (gotcha checker review 5).
-    sims: the base game with DLC per age."""
+    """(civic node, policy, unlock depth) of all ages: the policy slot traditions that a main-tree or
+    branch-tree civic unlocks (crisis policies left out). Branch trees (Theology, ideologies) are in
+    since civs can reach them: the Modern load dropped Evangelism (iteration 20261029-144431). The
+    depth matters: 17 policies need the civic's mastery (UnlockDepth 2), and depth 1 would give them
+    early (gotcha checker review 5). sims: the base game with DLC per age."""
     out = {}
     for sim in sims.values():
         for node, trad, depth in sim.db.execute(
                 "SELECT u.ProgressionTreeNodeType, u.TargetType, u.UnlockDepth FROM ProgressionTreeNodeUnlocks u "
                 "JOIN Traditions t ON t.TraditionType = u.TargetType WHERE u.TargetKind = 'KIND_TRADITION' "
                 "AND t.CultureSlotType = 'POLICY_CULTURE_SLOT' AND t.IsCrisis = 0 "
-                "AND u.ProgressionTreeNodeType LIKE 'NODE_CIVIC_%_MAIN_%'"):
+                "AND (u.ProgressionTreeNodeType LIKE 'NODE_CIVIC_%_MAIN_%' OR u.ProgressionTreeNodeType LIKE 'NODE_CIVIC_%_BRANCH_%')"):
             out.setdefault((node, trad, int(depth or 1)), None)
     return sorted(out)
 
@@ -637,7 +665,7 @@ def policy_keep_modifiers(pairs: list[tuple[str, str, int]]) -> list[ET.Element]
 def card_grant_modifiers(game: Path) -> list[ET.Element]:
     """Copies (CA_CARD_<id>) of the card modifiers (advanced start and transition legacy cards) that
     grant a named Exploration or Modern node (EFFECT_PLAYER_GRANT_PROGRESSION, NODE_SPECIFIC), with
-    that age's Breakthrough as an extra owner requirement."""
+    that age's Breakthrough of the node's tree (tech or civic) as an extra owner requirement."""
     g = "{GameEffects}"
     out = []
     for age, short in (("AGE_EXPLORATION", "EX"), ("AGE_MODERN", "MO")):
@@ -657,7 +685,8 @@ def card_grant_modifiers(game: Path) -> list[ET.Element]:
                 reqs = ET.Element(f"{g}OwnerRequirements")
                 m.insert(0, reqs)
             r = ET.SubElement(reqs, f"{g}Requirement", {"type": "REQUIREMENT_PLAYER_HAS_COMPLETED_PROGRESSION_TREE_NODE"})
-            ET.SubElement(r, f"{g}Argument", {"name": "ProgressionTreeNodeType"}).text = GATES[age]
+            gate = CIVIC_GATES[age] if args["NodeType"].startswith("NODE_CIVIC_") else GATES[age]
+            ET.SubElement(r, f"{g}Argument", {"name": "ProgressionTreeNodeType"}).text = gate
             ET.SubElement(r, f"{g}Argument", {"name": "MinDepth"}).text = "1"
             out.append(m)
     return out
@@ -743,12 +772,52 @@ def free_ship_modifiers(game: Path) -> list[ET.Element]:
     return out
 
 
+def tot_reveal_modifiers(game: Path) -> dict[str, tuple[str, str, ET.Element]]:
+    """Age -> (trait, modifier id, copy CA_<id>) for the modifier that reveals the age's Test of Time
+    civic tree (EFFECT_PLAYER_REVEAL_CULTURE_TREE on a *_TEST_OF_TIME tree, attached to a trait in
+    that age's data), with the civic Breakthrough of that age as an extra owner requirement."""
+    g = "{GameEffects}"
+    out = {}
+    for age in GATES:
+        data = game / "Base" / "modules" / age.lower().replace("_", "-") / "data"
+        defs = {}
+        for f in sorted(data.glob("*gameeffects*.xml")):
+            for el in ET.parse(f).getroot():
+                args = {a.get("name"): a.text for a in el if c.strip_ns(a.tag) == "Argument"}
+                if (c.strip_ns(el.tag) == "Modifier" and el.get("effect") == "EFFECT_PLAYER_REVEAL_CULTURE_TREE"
+                        and (args.get("ProgressionTreeType") or "").endswith("_TEST_OF_TIME")):
+                    defs[el.get("id")] = el
+        for f in sorted(data.glob("civilizations-*.xml")):
+            for table in ET.parse(f).getroot():
+                if c.strip_ns(table.tag) != "TraitModifiers":
+                    continue
+                for row in table:
+                    mid = row.get("ModifierId")
+                    if mid in defs and age not in out:
+                        m = ET.fromstring(ET.tostring(defs[mid]))
+                        m.set("id", f"CA_{mid}")
+                        reqs = ET.Element(f"{g}OwnerRequirements")
+                        m.insert(0, reqs)
+                        r = ET.SubElement(reqs, f"{g}Requirement", {"type": "REQUIREMENT_PLAYER_HAS_COMPLETED_PROGRESSION_TREE_NODE"})
+                        ET.SubElement(r, f"{g}Argument", {"name": "ProgressionTreeNodeType"}).text = CIVIC_GATES[age]
+                        ET.SubElement(r, f"{g}Argument", {"name": "MinDepth"}).text = "1"
+                        out[age] = (row.get("TraitType"), mid, m)
+        if age not in out:
+            raise SystemExit(f"No Test of Time tree reveal found for {age} (game patch?)")
+    return out
+
+
 def text_xml() -> str:
     rows = []
     for age, gate in GATES.items():
         rows += [(f"LOC_{gate}_NAME", f"{NAME[age]} Breakthrough"),
                  (f"LOC_{gate}_DESCRIPTION", f"Your civilization enters the {NAME[age]} Age. Opens the {NAME[age]} technologies."),
                  (f"LOC_{GATE_MODIFIER[age]}_DESCRIPTION", f"Enter the {NAME[age]} Age. Opens the {NAME[age]} technologies.")]
+        rows += [(f"LOC_{CIVIC_GATES[age]}_NAME", f"{NAME[age]} Breakthrough"),
+                 (f"LOC_{CIVIC_GATES[age]}_DESCRIPTION",
+                  f"Your culture enters the {NAME[age]} Age. Opens the {NAME[age]} civics and your civilization's "
+                  f"{NAME[age]} civic tree. The {NAME[age]} technologies need the {NAME[age]} Breakthrough technology."),
+                 (f"LOC_{CIVIC_GATE_MODIFIER[age]}_DESCRIPTION", f"Opens the {NAME[age]} civics.")]
     rows += [("LOC_CA_YOUR_AGE", "Your age"), ("LOC_CA_WORLD_AGE", "World age")]
     rows += [("LOC_CA_CATCHUP_NAME", "Catch-up Research"),
              ("LOC_CA_CATCHUP_DESCRIPTION",
@@ -921,13 +990,13 @@ def age_starter_items(sims: dict) -> dict:
 
 
 def civ_age_content(sims: dict) -> dict:
-    """Civ content of the later ages: the first nodes of every civic tree of that age other than
-    the main tree (each civ's unique tree, the Test of Time tree, the branch trees), and the
-    unique units, buildings and improvements of that age's civs that have no unlock row. A civ's
-    age is the age of its unique tree (TREE_CIVICS_<age>_<civ>). At a world transition a civ
-    behind its gate still gets a civ of the new age, or keeps its civ and gets the Test of Time
-    tree and another civ's tree (Rome: Norman, then Great Britain), so this content needs the gate
-    of that age (iterations 20261024-205920 and 20261024-214035).
+    """Civ content of the later ages: the civic trees of that age other than the main tree (each
+    civ's unique tree, the Test of Time tree, the branch trees; rule 2f uses them), and the unique
+    units, buildings and improvements of that age's civs that have no unlock row. A civ's age is
+    the age of its unique tree (TREE_CIVICS_<age>_<civ>). At a world transition a civ behind its
+    gate still gets a civ of the new age, or keeps its civ and gets the Test of Time tree and
+    another civ's tree (Rome: Norman, then Great Britain), so the items need the gate of that age
+    (iterations 20261024-205920 and 20261024-214035).
     sims: the base game with DLC (no mod) per age."""
     out = {}
     for age in GATES:
@@ -940,9 +1009,6 @@ def civ_age_content(sims: dict) -> dict:
             civ = "CIVILIZATION_" + tree[len(f"TREE_CIVICS_{SHORT[age]}_"):]
             if tree.startswith(f"TREE_CIVICS_{SHORT[age]}_") and civ in civs:
                 trees[tree] = civ
-        tree_list = ", ".join(repr(t) for t in all_trees)
-        roots = [r[0] for r in q(f"SELECT ProgressionTreeNodeType FROM ProgressionTreeNodes WHERE ProgressionTree IN "
-                                 f"({tree_list}) AND ProgressionTreeNodeType NOT IN (SELECT Node FROM ProgressionTreePrereqs)")]
         # A trait of exactly one civ of this age.
         civ_list = ", ".join(repr(v) for v in trees.values())
         traits = {r[0] for r in q(f"SELECT TraitType FROM CivilizationTraits WHERE CivilizationType IN ({civ_list}) "
@@ -954,7 +1020,7 @@ def civ_age_content(sims: dict) -> dict:
                                  ("Improvements", "ConstructibleType", "KIND_CONSTRUCTIBLE")):
             items[kind] |= {t for t, tr in q(f"SELECT {key}, TraitType FROM {table} WHERE TraitType IS NOT NULL")
                             if tr in traits and t not in unlocked}
-        out[age] = {"trees": sorted(all_trees), "roots": sorted(roots), "items": {k: sorted(v) for k, v in items.items()}}
+        out[age] = {"trees": sorted(all_trees), "items": {k: sorted(v) for k, v in items.items()}}
     return out
 
 
@@ -1162,12 +1228,14 @@ def write_report(builds) -> None:
                 f"- Validation: {r['issues']} load issues, {r['new_fk']} new foreign-key violations",
                 f"- Joined trees: {r['trees']}",
                 f"- Unclassified tables (not loaded; review): {', '.join(r['unclassified']) or 'none'}"]
-        for age, i in b.info["tech"].items():
-            if age in GATES:
-                out.append(f"- {NAME[age]} gate: cost {i['gate_cost']}; needs {', '.join(i['leaves'])}; opens {', '.join(i['roots'])}")
+        for system in ("tech", "civic"):
+            for age, i in b.info[system].items():
+                if age in GATES:
+                    out.append(f"- {NAME[age]} {system} gate: cost {i['gate_cost']}; needs {', '.join(i['leaves'])}; "
+                               f"opens {', '.join(i['roots'])}")
         out.append(f"- Removed repeatable nodes: techs {b.info['tech']['removed_repeatable']}, civics {b.info['civic']['removed_repeatable']}")
         out += [f"- Baseline {NAME[a]}: {t}" for a, t in b.info["baseline"]]
-        out += [f"- {NAME[a]} civ content at the gate: {len(v['trees'])} unique trees ({len(v['roots'])} first nodes); "
+        out += [f"- {NAME[a]} civ content: {len(v['trees'])} civic trees without a prereq gate (shown by rules 5e, 5i); "
                 f"items without unlock: {', '.join(v['items']['KIND_UNIT'] + v['items']['KIND_CONSTRUCTIBLE']) or 'none'}"
                 for a, v in b.civ_content.items()]
         out += [f"- Issue: {s}" for s in r["issue_samples"]] + [f"- Broken reference: {s}" for s in r["fk_samples"]]

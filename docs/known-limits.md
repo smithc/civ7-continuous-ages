@@ -14,7 +14,8 @@ reset of a civ's progress except where noted.
 
 | Name | What happens | Effect |
 | --- | --- | --- |
-| **Half swap** | A civ behind its Breakthrough can take a new civ at a world transition (the game's choice). It gets the new name, and the game converts some kept units to the new civ's unique versions. The new civ's content and abilities wait for the civ's Breakthrough. | Mostly cosmetic. Avoid it by keeping your civ, or with the AI option Persistence ([Settings](settings.md)). |
+| **Half swap** | A civ behind its Breakthrough can take a new civ at a world transition (the game's choice). It gets the new name, and the game converts some kept units to the new civ's unique versions. The new civ's unique civic tree, abilities and unique items without a base-game unlock wait for the civ's Breakthrough. | Mostly cosmetic. Avoid it by keeping your civ, or with the AI option Persistence ([Settings](settings.md)). |
+| **Prereq in another tree** | The game never opens a prerequisite in another tree: a civic that needs a tech, or a civic of one civic tree that needs a civic of another, stays locked for all time. The base game has no such prerequisite (a query of the base data with all DLC finds 0). A tree's reveal requirement (`RevealRequirementSetId`) only adds a tree; it does not hide one. Evidence: iterations 20261029-141650 (civic needing a tech), 20261029-142802 (civic needing a civic of the main tree), 20261029-142316 (reveal sets). | The civic tree has its own Breakthroughs. Later-age civ trees have no prerequisite gate: unique trees show with the tech Breakthrough and Test of Time trees with the civic Breakthrough (gated reveal modifiers); branch trees keep their base-game conditions. Up to version 0.2.1, no civ could research an Exploration or Modern civic. |
 | **U-CIVTREE** (lost own civics) | A civ that keeps its civ can lose 2 to 4 completed civics of its own Antiquity civ tree at the load (for example Egypt, Greece, Han; not Persia or Rome). They become researchable again. No cause was found, and the game has no call to grant them back. | A small reset: 150 to 250 culture per civic to research them again. |
 | **U-UNIQUE-COMMANDER** | The game sometimes removes the previous civ's unique commander instead of converting it, with its promotions. | One commander lost in some transitions. |
 | **Commander conversion** | The game converts kept commanders to the new civ's unique commander (for example Army Commander to Soltan). A script cannot change a unit's type. | Cosmetic for a civ behind its gate. |
@@ -41,6 +42,28 @@ reset of a civ's progress except where noted.
   paused.
 - **Crashes at game start.** About 3 of 60 test games crashed in the first minutes, in the game's
   audio engine. A retry ran clean each time. No crash happened later in a game.
+- **Extra units for a civ that keeps its civ (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
+  "legacy" civ of the new age with the Test of Time civic Syncretism (`MOD_SYNCRETISM`,
+  `EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE`), with that civ's traits (`LegacyCivilizationTraits`), and
+  can build that civ's unique units. New in version 0.2.2: up to 0.2.1 the Test of Time tree was
+  locked (no Persistence run of 2026-10-25 had a legacy civ's items; 34 and 106 in today's). At the
+  next load the game converts those units to their base types and leaves two shadows for each. The
+  mod's shadow step counts two shadows only for the unique units of the civ's own civs, so the extra
+  shadows make new units. Iteration 20261029-150344: Rome (legacy Norman), 17 Chevaliers, then 15
+  converted and 17 Swordsmen made (retagged to Rome's infantry class). Iteration 20261029-152811:
+  Egypt (legacy Majapahit), 7 Cetbang converted to Cogs, and 6 Cogs made. A fix must know the
+  legacy civ, or which units the game converted, at the load. The test report names it as
+  `KNOWN LIMIT (U-TOT-SHADOW)`, only for a civ that kept its civ and only up to the number of legacy
+  unique units gone, so any other duplicate still fails.
+- **Legacy civ items before the Breakthrough (U-LEGACY-ITEMS).** A civ that adopts a legacy civ
+  (Syncretism, above) can build its unique improvements and buildings without the civic that unlocks
+  them, and before its own Breakthrough tech of that age: Syncretism needs only the civic
+  Breakthrough. Iteration 20261029-162350: Egypt (legacy Songhai) bought two Caravanserais with civ
+  age Antiquity, and later (legacy Siam) started Bangs with civ age Exploration in the Modern world;
+  iteration 20261029-164407 (every AI keeps its civ): 106 such items started. Egypt had no Songhai or
+  Siam civic, so the game gives these items through the legacy trait. Planned fix: Syncretism's grant
+  also needs the Breakthrough tech of its age. The test report names it as
+  `KNOWN LIMIT (U-LEGACY-ITEMS)`, only for a legacy civ's items built by a civ that is not that civ.
 
 ## Ideas not built
 

@@ -34,8 +34,8 @@ In the base game each age has its own tech tree and civic tree. In this mod:
 - The trees have the same id in every world age, so completed research stays completed across world
   transitions.
 
-A civ can research techs of a later age before the world reaches that age, but only after the
-Breakthrough (see below).
+A civ can research techs and civics of a later age before the world reaches that age, but only after
+the Breakthrough of that tree (see below).
 
 ### The Breakthrough techs
 
@@ -43,21 +43,39 @@ Two techs are new:
 
 | Tech | Requires | Cost (standard speed) | Opens |
 | --- | --- | --- | --- |
-| **Exploration Breakthrough** | Iron Working, Mathematics, Navigation | 885 | The first Exploration techs (Astronomy, Cartography, Machinery) and civics |
-| **Modern Breakthrough** | Gunpowder, Urban Planning | 4350 | The first Modern techs (Academics, Military Science, Steam Engine) and civics |
+| **Exploration Breakthrough** | Iron Working, Mathematics, Navigation | 885 | The first Exploration techs (Astronomy, Cartography, Machinery) |
+| **Modern Breakthrough** | Gunpowder, Urban Planning | 4350 | The first Modern techs (Academics, Military Science, Steam Engine) |
 
-A civ's age is the age of its last Breakthrough:
+A civ's age is the age of its last Breakthrough tech:
 
 - no Breakthrough: Antiquity;
 - Exploration Breakthrough: Exploration;
 - Modern Breakthrough: Modern.
 
+The civ's age controls its later-age content: units, buildings and improvements that techs unlock,
+starter items, civ abilities, unique items, and ocean travel (see
+[Content locked by civ age](#content-locked-by-civ-age)).
+
 ### Civics
 
-- The first civics of each later age need the previous age's last civics **and** the civ's
-  Breakthrough of that age.
-- Civ-specific civic trees (unique trees, Test of Time trees, branch trees) of a later age also need
-  that age's Breakthrough. See [Civs and ages](civs-and-ages.md#unique-content-civ-abilities-and-civic-trees).
+The civic tree has its own Breakthrough of each age. A civ researches it with culture, as any civic:
+
+| Civic | Requires | Cost (standard speed) | Opens |
+| --- | --- | --- | --- |
+| **Exploration Breakthrough** | Commerce, Entertainment, Organized Military, Philosophy (the last Antiquity civics) | 900 | Economics and Piety (the first Exploration civics) |
+| **Modern Breakthrough** | Imperialism, Social Class, Sovereignty (the last Exploration civics) | 2520 | Modernization, Natural History, Social Question (the first Modern civics) |
+
+- The two trees are independent. A civ with strong culture can research Exploration civics, and use
+  what they unlock (policies, wonders, buildings), before its Exploration Breakthrough tech. A civ
+  with strong science can be in a later age in techs than in civics.
+- So culture always has a use: after the last civics of an age, the civ researches the next civic
+  Breakthrough. Only the last age has the base game's repeatable Future Civic (and Future Tech).
+- Civ-specific civic trees of a later age: a unique tree shows with the civ's Breakthrough tech, a
+  Test of Time tree with its civic Breakthrough, and branch trees (Theology, ideologies) keep their
+  base-game conditions. See [Civs and ages](civs-and-ages.md#unique-content-civ-abilities-and-civic-trees).
+- Why no tech prereq on a civic: the game never opens a prereq that is in another tree. Up to
+  version 0.2.1 the first civics of each later age needed the Breakthrough tech, and no civ could ever
+  research an Exploration or Modern civic (a player report; iterations 20261029-141650 and 142802).
 
 Optional: with the **Catch-up Research** setup option, techs and civics of ages before the world age
 are faster to research. See [Settings](settings.md#catch-up-research-mod-option).
@@ -103,8 +121,9 @@ No city becomes a town, and gold and influence are not capped.
 
 ### Policies and traditions
 
-- Each main-tree policy is unlocked again for every civ that has completed its civic (to the depth
-  that the policy needs). A transition can therefore not remove an earned policy.
+- Each main-tree and branch-tree policy (Theology, the ideologies) is unlocked again for every civ
+  that has completed its civic (to the depth that the policy needs). A transition can therefore not
+  remove an earned policy.
 - Traditions are kept.
 
 ### Governments
@@ -117,15 +136,18 @@ base game.
 Legacy cards are chosen at a world transition as in the base game. Some advanced start cards and
 transition legacy cards grant a named tech or civic of the new age (for example the science legacy
 card that unlocks Academics). For a civ behind its Breakthrough, that grant now waits: the civ gets
-the tech or civic when it researches the Breakthrough. (16 card grants.)
+the tech when it researches the Breakthrough tech, and the civic when it researches the civic
+Breakthrough (for example the Exploration Dedication that grants Piety). (18 card grants: 7 civics,
+11 techs.)
 
 ## Content locked by civ age
 
 A civ can use content of its own age and of earlier ages. Content of a later age needs that age's
 Breakthrough. This applies even after the world has moved on:
 
-- techs and civics of a later age;
-- units, buildings, improvements, wonders and projects of a later age;
+- techs of a later age, and units, buildings, improvements, wonders and projects that they unlock;
+- civics of a later age, and what they unlock, need the civic Breakthrough of that age (see
+  [Civics](#civics));
 - "starter" units and buildings that a later age gives at its start;
 - civ-specific content (see [Civs and ages](civs-and-ages.md)).
 

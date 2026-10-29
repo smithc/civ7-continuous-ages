@@ -97,11 +97,26 @@ def native_ages() -> dict:
     return {t: a[0] if len(a) == 1 else "common" for t, a in seen.items()}
 
 
+AGE_RANK = {"AQ": 0, "EX": 1, "MO": 2}
+
+
+def too_early(req, civ_age: str | None, civic_age: str | None = None) -> bool:
+    """True when a civ has reached none of an item's unlock tracks (required_ages() value). Two gates:
+    the tech track needs the civ age (tech Breakthrough), the civic track (main-tree civics) the civic
+    age (civic Breakthrough). Records without a civic age (older runs) use the civ age for both."""
+    if req is None or civ_age not in AGE_RANK:
+        return False
+    tech, civic = (req, None) if isinstance(req, int) else req
+    civic_rank = AGE_RANK.get(civic_age if civic_age in AGE_RANK else civ_age)
+    return not ((tech is not None and tech <= AGE_RANK[civ_age]) or (civic is not None and civic <= civic_rank))
+
+
 def required_ages(world: str) -> dict:
-    """Item -> the civ age it needs in the built mod for this world (0 Antiquity, 1 Exploration,
-    2 Modern), from its unlock rows; the unlocks are OR, so the earliest counts. A node of a civ's
-    own tree (unique, Test of Time or branch civics) counts as its tree's age. A civ-unique item
-    with no unlock row needs the age of its civ (the age of the civ's unique tree)."""
+    """Item -> the age it needs in the built mod for this world (0 Antiquity, 1 Exploration, 2 Modern),
+    from its unlock rows; the unlocks are OR, so the earliest counts. An int is the civ age (tech
+    track); a pair (tech or None, civic) also counts the civic age, for items of main-tree, Test of
+    Time and branch civics (see too_early and node_track). A civ-unique item with no unlock row needs
+    the age of its civ (the age of the civ's unique tree)."""
     mods = c.load_base_modules(include_dlc=True) + [c.parse_modinfo(MOD_DIR / "continuous-ages.modinfo")]
     sim = c.Simulator()
     for path in c.database_items(c.applicable_groups(mods, world)):
@@ -109,19 +124,37 @@ def required_ages(world: str) -> dict:
     q = lambda sql: sim.db.execute(sql).fetchall()
     short = {"AQ": 0, "EX": 1, "MO": 2}
     tree_of = dict(q("SELECT ProgressionTreeNodeType, ProgressionTree FROM ProgressionTreeNodes"))
-    def node_age(n):
-        for age, prefixes in ((0, ("NODE_TECH_AQ_", "NODE_CIVIC_AQ_MAIN_")),
-                              (1, ("NODE_TECH_EX_", "NODE_CIVIC_EX_MAIN_", "NODE_TECH_CA_EXPLORATION_")),
-                              (2, ("NODE_TECH_MO_", "NODE_CIVIC_MO_MAIN_", "NODE_TECH_CA_MODERN_"))):
-            if n.startswith(prefixes):
-                return age
-        parts = (tree_of.get(n) or "").split("_")  # TREE_CIVICS_<age>_<name>
-        return short.get(parts[2]) if len(parts) > 2 else None
+    world_rank = short[{"AGE_ANTIQUITY": "AQ", "AGE_EXPLORATION": "EX", "AGE_MODERN": "MO"}[world]]
+    def node_track(n):
+        """(track, age): tech or civic. A later-age civ tree's node: a unique tree shows with the tech
+        gate (rule 5e), a Test of Time tree with the civic gate (rule 5i); branch trees (Theology,
+        ideologies) count as civic (they need civics of that age). In a later world, rule 2f: tech."""
+        for age, tech, civic in ((0, ("NODE_TECH_AQ_",), ("NODE_CIVIC_AQ_MAIN_",)),
+                                 (1, ("NODE_TECH_EX_", "NODE_TECH_CA_EXPLORATION_"), ("NODE_CIVIC_EX_MAIN_", "NODE_CIVIC_CA_EXPLORATION_")),
+                                 (2, ("NODE_TECH_MO_", "NODE_TECH_CA_MODERN_"), ("NODE_CIVIC_MO_MAIN_", "NODE_CIVIC_CA_MODERN_"))):
+            if n.startswith(tech):
+                return "tech", age
+            if n.startswith(civic):
+                return "civic", age
+        tree = tree_of.get(n) or ""
+        parts = tree.split("_")  # TREE_CIVICS_<age>_<name>
+        age = short.get(parts[2]) if len(parts) > 2 else None
+        if age is None:
+            return None, None
+        if age < world_rank or not (tree.endswith("_TEST_OF_TIME") or "_BRANCH_" in tree):
+            return "tech", age
+        return "civic", age
     rows = {}
     for node, target in q("SELECT ProgressionTreeNodeType, TargetType FROM ProgressionTreeNodeUnlocks "
                           "WHERE TargetKind IN ('KIND_UNIT', 'KIND_CONSTRUCTIBLE')"):
-        rows.setdefault(target, []).append(node_age(node))
-    need = {t: min(a for a in ages if a is not None) for t, ages in rows.items() if any(a is not None for a in ages)}
+        track, age = node_track(node)
+        if track:
+            rows.setdefault(target, []).append((track, age))
+    need = {}
+    for t, alts in rows.items():
+        tech = min((a for track, a in alts if track == "tech"), default=None)
+        civic = min((a for track, a in alts if track == "civic"), default=None)
+        need[t] = tech if civic is None else (tech, civic)
     # Civ age: the age of the civ's unique tree.
     civ_age = {}
     for (tree,) in q("SELECT ProgressionTreeType FROM ProgressionTrees WHERE ProgressionTreeType LIKE 'TREE_CIVICS_%'"):
@@ -135,7 +168,7 @@ def required_ages(world: str) -> dict:
                       "SELECT ConstructibleType, TraitType FROM Buildings WHERE TraitType IS NOT NULL UNION "
                       "SELECT ConstructibleType, TraitType FROM Improvements WHERE TraitType IS NOT NULL"):
         civs = trait_civ.get(trait, set())
-        if t not in need and len(civs) == 1 and next(iter(civs)) in civ_age:
+        if t not in rows and len(civs) == 1 and next(iter(civs)) in civ_age:
             need[t] = civ_age[next(iter(civs))]
     return need
 
@@ -155,12 +188,11 @@ def production_leaks(qfile: Path, players: list, item_col: int = 4, names: dict 
     that the item's unlocks need (the unlocks are OR: the earliest one counts). players: PLAYER
     check records. item_col and names: the purchase log has the item's text key in column 3."""
     worlds = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
-    rank = {"AQ": 0, "EX": 1, "MO": 2}
     need = {w: required_ages(w) for w in worlds}
     timeline = {}
     for p in players:
         if "civAge" in p and p.get("age") in worlds:
-            timeline.setdefault((p["age"], p["id"]), []).append((p["turn"], p["civAge"]))
+            timeline.setdefault((p["age"], p["id"]), []).append((p["turn"], (p["civAge"], p.get("civicAge"))))
     # The world of the log's first segment: a run from a save does not start in Antiquity.
     base = worlds.index(players[0]["age"]) if players and players[0].get("age") in worlds else 0
     seg, last_turn, seen, leaks = 0, 0, set(), []
@@ -184,10 +216,10 @@ def production_leaks(qfile: Path, players: list, item_col: int = 4, names: dict 
         # The civ's age at the first check at or after this turn. Checks run every few turns, so a
         # civ can pass its gate between two checks; only a later check that still shows the lower
         # age proves a leak.
-        later = [ca for t, ca in sorted(timeline.get((world, pid), [])) if t >= turn]
-        civ_age = later[0] if later else None
-        if civ_age is not None and rank[civ_age] < required:
-            leaks.append((world, turn, pid, row[2].strip(), item, civ_age))
+        later = [ages for t, ages in sorted(timeline.get((world, pid), []), key=lambda x: x[0]) if t >= turn]
+        civ_age, civic_age = later[0] if later else (None, None)
+        if too_early(required, civ_age, civic_age):
+            leaks.append((world, turn, pid, row[2].strip(), item, civ_age if civic_age is None else f"{civ_age}/civic {civic_age}"))
     return leaks
 
 
@@ -230,6 +262,49 @@ def log_lines(pattern: str) -> list[str]:
 
 
 _CIV_UNITS = None
+
+
+_LEGACY_ITEMS = None
+
+
+def legacy_split(leaks: list[tuple], players: list) -> tuple[list[tuple], list[tuple]]:
+    """Split production leaks into (real, U-LEGACY-ITEMS). Known limit: a civ that keeps its civ can adopt
+    a legacy civ (Test of Time civic Syncretism), and the game lets it build that civ's unique
+    improvements and buildings without the civic that unlocks them (Egypt, legacy Songhai: Caravanserai
+    with civ age Antiquity; iteration 20261029-162350). Only items of a legacy civ, built by a civ that
+    is not that civ."""
+    global _LEGACY_ITEMS
+    if _LEGACY_ITEMS is None:
+        _LEGACY_ITEMS = {}
+        for w in ("AGE_EXPLORATION", "AGE_MODERN"):
+            sim = c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True)
+            for item, civ in sim.db.execute(
+                    "SELECT x.ConstructibleType, l.CivilizationType FROM (SELECT ConstructibleType, TraitType FROM Buildings "
+                    "UNION SELECT ConstructibleType, TraitType FROM Improvements) x JOIN LegacyCivilizationTraits l "
+                    "ON l.TraitType = x.TraitType"):
+                _LEGACY_ITEMS.setdefault(item, set()).add(civ.replace("CIVILIZATION_", ""))
+    real, legacy = [], []
+    for leak in leaks:
+        w, t, p, item = leak[0], leak[1], leak[2], leak[4]
+        civ = next((r.get("civ") for r in players if r.get("age") == w and r.get("id") == p and r.get("turn", 0) >= t), None)
+        (legacy if item in _LEGACY_ITEMS and civ and civ not in _LEGACY_ITEMS[item] else real).append(leak)
+    return real, legacy
+
+
+_LEGACY_UNITS = None
+
+
+def legacy_unique_units() -> set:
+    """Unique unit types (without UNIT_) of the legacy civs (LegacyCivilizationTraits): the units a civ
+    that keeps its civ can build through its legacy civ's traits (U-TOT-SHADOW)."""
+    global _LEGACY_UNITS
+    if _LEGACY_UNITS is None:
+        _LEGACY_UNITS = set()
+        for w in ("AGE_EXPLORATION", "AGE_MODERN"):
+            sim = c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True)
+            _LEGACY_UNITS |= {u.replace("UNIT_", "") for (u,) in sim.db.execute(
+                "SELECT UnitType FROM Units WHERE TraitType IN (SELECT TraitType FROM LegacyCivilizationTraits)")}
+    return _LEGACY_UNITS
 
 
 def civ_unique_units(civ: str | None) -> set:
@@ -568,6 +643,16 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
                     lines.append(f"  - KNOWN LIMIT (U-SHADOW-CLASS): units made from leftover shadows with another class: "
                                  f"{dict(fewer)} -> {dict(more)}")
                     more, fewer = {}, {}
+                # Known limit (U-TOT-SHADOW, docs/known-limits.md): a civ that keeps its civ can adopt a legacy
+                # civ (Syncretism) and build its unique units; at the load the engine converts or removes them, and
+                # their extra shadows make units (iterations 20261029-150344, 152811). Only for such a civ, and
+                # at most as many units off, each way, as legacy unique units gone.
+                legacy_gone = sum(n for u, n in gone0.items() if u in legacy_unique_units()) if r_units else 0
+                if ((more or fewer) and civ_a and civ_a == civ_b and legacy_gone
+                        and sum(more.values()) <= legacy_gone and sum(fewer.values()) <= legacy_gone):
+                    lines.append(f"  - KNOWN LIMIT (U-TOT-SHADOW): {legacy_gone} legacy-civ unique units gone, "
+                                 f"units off by class: more {dict(more)}, fewer {dict(fewer)}")
+                    more, fewer = {}, {}
                 if more:
                     failed = True
                     lines.append(f"  - DUPLICATE FAIL: military units more {when}, by class: {more}")
@@ -612,9 +697,8 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
                     # the production log does not show them.
                     if nxt not in need_cache:
                         need_cache[nxt] = required_ages(nxt)
-                    rank = {"AQ": 0, "EX": 1, "MO": 2}.get(a.get("civAge"))
                     early = {u: n for u, n in new_u.items()
-                             if rank is not None and (need_cache[nxt].get("UNIT_" + u) or 0) > rank}
+                             if too_early(need_cache[nxt].get("UNIT_" + u), a.get("civAge"), a.get("civicAge"))}
                     # The engine converts a kept unit to the new civ's unique version (UnitReplaces), for
                     # example Army Commander -> Soltan: a known limit of the world-transition swap (U2/U3).
                     if early:
@@ -652,9 +736,8 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
                 if t1_new:
                     if nxt not in need_cache:
                         need_cache[nxt] = required_ages(nxt)
-                    rank = {"AQ": 0, "EX": 1, "MO": 2}.get(a.get("civAge"))
                     early1 = {u: n for u, n in t1_new.items()
-                              if rank is not None and (need_cache[nxt].get("UNIT_" + u) or 0) > rank}
+                              if too_early(need_cache[nxt].get("UNIT_" + u), a.get("civAge"), a.get("civicAge"))}
                     # Known limit (half swap, U2): a civ that takes a new civ at the world transition gets that
                     # civ's age-start unique units in its first turn (Norman: 2 Sokemen; iterations
                     # 20261025-011516, 014531), even when it is behind its gate.
@@ -789,7 +872,7 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
             need_cache[e["age"]] = required_ages(e["age"])
         civ_now = next((p.get("civ") for p in reversed(players) if p.get("age") == e["age"] and p.get("id") == e["id"]), None)
         own = civ_unique_units(civ_now)
-        late = _C(u for u in types if (need_cache[e["age"]].get("UNIT_" + u) or 0) > rank3[e["civAge"]])
+        late = _C(u for u in types if too_early(need_cache[e["age"]].get("UNIT_" + u), e["civAge"], e.get("civicAge")))
         half = {u: n for u, n in late.items() if u in own}
         bad = {u: n for u, n in late.items() if u not in own}
         if half:
@@ -808,9 +891,13 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
     for p in players:
         w = p.get("age")
         if w in order_short and "civAge" in p:
-            e = lag.setdefault((w, p["id"]), {"civ": p.get("civ"), "start": None, "caught": None, "ahead": None, "last": 0})
+            e = lag.setdefault((w, p["id"]), {"civ": p.get("civ"), "start": None, "caught": None, "ahead": None, "last": 0,
+                                              "civic": {}})
             if e["start"] is None:
                 e["start"] = p["civAge"]
+            # The civic age (civic Breakthroughs): the first turn of each civic age in this world.
+            if p.get("civicAge") in rank_s:
+                e["civic"].setdefault(p["civicAge"], p["turn"])
             if e["caught"] is None and rank_s[p["civAge"]] >= rank_s[order_short[w]]:
                 e["caught"] = p["turn"]
             if e["ahead"] is None and rank_s[p["civAge"]] > rank_s[order_short[w]]:
@@ -819,11 +906,12 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
     if lag:
         lines += ["", "Civ age against world age (turn of the first check at or above the world's age; "
                       "'ahead' = first check past it):", "",
-                  "| World age | Player | Civ | Civ age at start | Reached world age | Ahead of world | Last turn checked |",
-                  "| --- | --- | --- | --- | --- | --- | --- |"]
+                  "| World age | Player | Civ | Civ age at start | Reached world age | Ahead of world | Civic age (first turn) | Last turn checked |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |"]
         for (w, pid), e in sorted(lag.items(), key=lambda x: (["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"].index(x[0][0]), x[0][1])):
+            civic = ", ".join(f"{a} {t}" for a, t in sorted(e["civic"].items(), key=lambda x: rank_s[x[0]])) or "-"
             lines.append(f"| {w} | {pid} | {e['civ']} | {e['start']} | {e['caught'] if e['caught'] is not None else 'never'} | "
-                         f"{e['ahead'] if e['ahead'] is not None else '-'} | {e['last']} |")
+                         f"{e['ahead'] if e['ahead'] is not None else '-'} | {civic} | {e['last']} |")
     gates = records("GATE")
     if gates:
         agg = {}
@@ -883,23 +971,27 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
                     first.setdefault(item, int(row[0]))
     if qfile.exists():
         lines += ["## Production by world age and native age", ""] + production_by_world(qfile, ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"].index(players[0]["age"]) if players and players[0].get("age") in ("AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN") else 0) + [""]
-        leaks = production_leaks(qfile, players)
+        leaks, legacy = legacy_split(production_leaks(qfile, players), players)
         lines += ["## Later-age items started before the civ's gate (leaks)", ""]
         lines += [f"- {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in leaks[:25]]
+        lines += [f"- KNOWN LIMIT (U-LEGACY-ITEMS): {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}"
+                  for w, t, p, city, item, ca in legacy[:10]]
         if leaks:
             failed = True
-        else:
+        elif not legacy:
             lines.append("- none")
         lines.append("")
         # Purchases with gold or faith (CityPurchase.csv), the same rule (gotcha checker review 1, #7).
         pfile = LOGS / "CityPurchase.csv"
         if pfile.exists():
-            bought = production_leaks(pfile, players, item_col=3, names=item_names())
+            bought, legacy = legacy_split(production_leaks(pfile, players, item_col=3, names=item_names()), players)
             lines += ["## Later-age items bought before the civ's gate (leaks)", ""]
             lines += [f"- {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in bought[:25]]
+            lines += [f"- KNOWN LIMIT (U-LEGACY-ITEMS): {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}"
+                      for w, t, p, city, item, ca in legacy[:10]]
             if bought:
                 failed = True
-            else:
+            elif not legacy:
                 lines.append("- none")
             lines.append("")
     lines += ["## Exploration items produced (first turn in production)", ""]

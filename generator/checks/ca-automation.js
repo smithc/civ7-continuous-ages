@@ -63,6 +63,17 @@ function cultureState(player) {
     policies: (c?.getUnlockedTraditions(CultureSlotTypes.POLICY_CULTURE_SLOT) ?? []).length,
   };
 }
+// A node counts as done at depth 1 (the same rule as nodeDone in ca-checks.js; this module has its own copy).
+function nodeDone(playerId, hash) {
+  const S = ProgressionTreeNodeState;
+  const s = Game.ProgressionTrees.getNodeState(playerId, hash);
+  if (s >= S.NODE_STATE_FULLY_UNLOCKED || s === S.NODE_STATE_UNLOCKED) return true;
+  return s === S.NODE_STATE_IN_PROGRESS && (Game.ProgressionTrees.getNode(playerId, hash)?.depthUnlocked ?? 0) >= 1;
+}
+function hasNode(playerId, type) {
+  const hash = GameInfo.ProgressionTreeNodes.lookup(type)?.$hash;
+  return hash !== undefined && nodeDone(playerId, hash);
+}
 
 // Camera auto-pan options (user options, in memory; the options screen saves them, this does not).
 // Off by default in the test, to see if the camera pans add wait time; CAAutoPan=1 keeps them on.
@@ -163,7 +174,7 @@ class AutomationTestCAPlayAges extends AutomationBasePlayGame {
     let techs = 0, civics = 0;
     const civicNodes = [];
     for (const node of GameInfo.ProgressionTreeNodes) {
-      if (Game.ProgressionTrees.getNodeState(player.id, node.$hash) < ProgressionTreeNodeState.NODE_STATE_FULLY_UNLOCKED) continue;
+      if (!nodeDone(player.id, node.$hash)) continue; // depth 1 counts
       const system = GameInfo.ProgressionTrees.lookup(node.ProgressionTree)?.SystemType;
       if (system === "SYSTEM_TECH") techs++;
       else if (system === "SYSTEM_CULTURE") { civics++; civicNodes.push(node.ProgressionTreeNodeType.replace("NODE_CIVIC_", "")); }
@@ -172,11 +183,11 @@ class AutomationTestCAPlayAges extends AutomationBasePlayGame {
     for (const id of player.Cities?.getCityIds() ?? []) {
       if (Cities.get(id)?.isTown) towns++; else cities++;
     }
-    const has = (t) => Game.ProgressionTrees.getNodeState(player.id, GameInfo.ProgressionTreeNodes.lookup(t)?.$hash)
-      >= ProgressionTreeNodeState.NODE_STATE_FULLY_UNLOCKED;
+    const has = (t) => hasNode(player.id, t);
     const civAge = has("NODE_TECH_CA_MODERN_BREAKTHROUGH") ? "MO" : has("NODE_TECH_CA_EXPLORATION_BREAKTHROUGH") ? "EX" : "AQ";
+    const civicAge = has("NODE_CIVIC_CA_MODERN_BREAKTHROUGH") ? "MO" : has("NODE_CIVIC_CA_EXPLORATION_BREAKTHROUGH") ? "EX" : "AQ";
     console.warn(`[CA-CHECK][AGEEND] ${JSON.stringify({
-      age, turn: Game.turn, id: player.id, civAge, gold: Math.round(player.Treasury?.goldBalance ?? -1), cities, towns,
+      age, turn: Game.turn, id: player.id, civAge, civicAge, gold: Math.round(player.Treasury?.goldBalance ?? -1), cities, towns,
       units: (player.Units?.getUnitIds() ?? []).length, techs, civics, ...cultureState(player), ...growthState(player) })}`);
     logChunks("CIVICS", { when: "end", age, id: player.id }, "nodes", civicNodes);
     logChunks("UNITS", { when: "end", age, id: player.id }, "types", unitTypes(player));

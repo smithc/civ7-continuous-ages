@@ -51,15 +51,15 @@ The mod adds one game setup option, **Catch-up Research**, in the game options. 
 
 When the world enters a new age, every tech and civic of the earlier ages costs less: two thirds of
 its cost with +50%, and half with +100%. The tech and civic trees show the lower cost. Masteries get
-the same discount. The Breakthrough into the world age counts as part of the age before, so
-in the Exploration world it gets the bonus too. The bonus includes the civ-specific civic trees of
-the earlier ages.
+the same discount. The Breakthroughs into the world age (the tech and the civic) count as part of
+the age before, so in the Exploration world they get the bonus too. The bonus includes the
+civ-specific civic trees of the earlier ages.
 
 | World age | Nodes with the bonus |
 | --- | --- |
 | Antiquity | none |
-| Exploration | Antiquity techs and civics, the Exploration Breakthrough |
-| Modern | Antiquity and Exploration techs and civics, both Breakthroughs |
+| Exploration | Antiquity techs and civics, the Exploration Breakthroughs (tech and civic) |
+| Modern | Antiquity and Exploration techs and civics, all four Breakthroughs |
 
 The bonus is the same for every civ. A civ that has already researched these nodes gains nothing, so
 in practice it helps the civs that are behind the world, and any civ that skipped an old node. AI
@@ -80,7 +80,8 @@ first Exploration turn):
 The game loaded the option's rules only in the Exploration and Modern worlds and only for the chosen
 value. A full three-age game with +100% (seed 777, run 20261025-165729) passed all the
 standard checks. The option shows in the game setup's advanced options, below Age Transition Impact (checked by hand).
-The costs in the Modern world and of civ-specific civic trees were not measured.
+The costs in the Modern world, of civ-specific civic trees and of the civic Breakthroughs (new in
+version 0.2.2) were not measured.
 
 ## Game speed
 

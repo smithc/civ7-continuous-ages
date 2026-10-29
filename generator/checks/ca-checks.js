@@ -5,6 +5,7 @@
 //   [CA-CHECK][PLAYER] {"age","turn","id","civAge","civ","gate",...} one line per major civ
 //   [CA-CHECK][STATE] {"age","turn","id","civAge","gold","techs",...} values a transition could reset
 //   [CA-CHECK][BUILD] {"turn","id","ok","needUnlock","noPlot",...}   capital: can it build Exploration buildings?
+//   [CA-CHECK][CIVICGATE] {"turn","id","gates","control","open","stuck","leak"} later-age civics: may the civ research them?
 //   [CA-CHECK][FAIL] ...    a rule of the design was broken
 //   [CA-CHECK][ERROR] ...   the check itself failed
 
@@ -13,6 +14,8 @@ const BUILD_CHECK_EVERY = 20;
 const GATE_CHECK_EVERY = 10;
 const GATE = "NODE_TECH_CA_EXPLORATION_BREAKTHROUGH";
 const MO_GATE = "NODE_TECH_CA_MODERN_BREAKTHROUGH";
+// The civic tree's own Breakthroughs (researched with culture): they open the later-age civics.
+const CIVIC_GATE = { EX: "NODE_CIVIC_CA_EXPLORATION_BREAKTHROUGH", MO: "NODE_CIVIC_CA_MODERN_BREAKTHROUGH" };
 const OCEAN_TECH = "NODE_TECH_EX_SHIPBUILDING"; // removes the deep-ocean obstacle (MOD_TECH_EX_NO_OCEAN_OBSTACLE)
 // Ocean travel itself (MOD_TECH_OCEAN_TRAVEL) comes with the gate: the civ's own Exploration baseline.
 
@@ -33,17 +36,27 @@ function log(kind, text) {
   console.warn(`[CA-CHECK][${kind}] ${text}`);
 }
 
+// A node counts as done at depth 1, as its unlocks and its children need. NODE_STATE_UNLOCKED is depth 1
+// with the mastery still open (the tree screen lets the civ go on), and a mastery in progress shows
+// IN_PROGRESS. Counting only FULLY_UNLOCKED missed such nodes (gotcha review of 2026-10-29: Qajar's
+// Natural History at depth 1 of 2 counted as not done).
+function nodeDone(playerId, hash) {
+  const S = ProgressionTreeNodeState;
+  const s = Game.ProgressionTrees.getNodeState(playerId, hash);
+  if (s >= S.NODE_STATE_FULLY_UNLOCKED || s === S.NODE_STATE_UNLOCKED) return true;
+  return s === S.NODE_STATE_IN_PROGRESS && (Game.ProgressionTrees.getNode(playerId, hash)?.depthUnlocked ?? 0) >= 1;
+}
+
 function hasNode(playerId, type) {
   const hash = GameInfo.ProgressionTreeNodes.lookup(type)?.$hash;
   if (hash === undefined) return false;
-  return Game.ProgressionTrees.getNodeState(playerId, hash) >= ProgressionTreeNodeState.NODE_STATE_FULLY_UNLOCKED;
+  return nodeDone(playerId, hash);
 }
 
 function completedNodes(playerId, prefix) {
   const out = [];
   for (const node of GameInfo.ProgressionTreeNodes) {
-    if (node.ProgressionTreeNodeType.startsWith(prefix) &&
-        Game.ProgressionTrees.getNodeState(playerId, node.$hash) >= ProgressionTreeNodeState.NODE_STATE_FULLY_UNLOCKED) {
+    if (node.ProgressionTreeNodeType.startsWith(prefix) && nodeDone(playerId, node.$hash)) {
       out.push(node.ProgressionTreeNodeType.replace(/^NODE_(TECH|CIVIC)_/, ""));
     }
   }
@@ -233,7 +246,7 @@ function minorsRecord(turn) {
       const nodes = { AQ: 0, EX: 0, MO: 0, gateEX: 0, gateMO: 0 };
       for (const node of GameInfo.ProgressionTreeNodes) {
         if (node.ProgressionTree !== "TREE_TECHS_AQ") continue;
-        if (Game.ProgressionTrees.getNodeState(player.id, node.$hash) < ProgressionTreeNodeState.NODE_STATE_FULLY_UNLOCKED) continue;
+        if (!nodeDone(player.id, node.$hash)) continue;
         const t = node.ProgressionTreeNodeType;
         if (t === "NODE_TECH_CA_EXPLORATION_BREAKTHROUGH") nodes.gateEX++;
         else if (t === "NODE_TECH_CA_MODERN_BREAKTHROUGH") nodes.gateMO++;
@@ -267,7 +280,7 @@ function continuityState(player) {
   let techs = 0, civics = 0;
   const civicNodes = [];
   for (const node of GameInfo.ProgressionTreeNodes) {
-    if (Game.ProgressionTrees.getNodeState(player.id, node.$hash) < ProgressionTreeNodeState.NODE_STATE_FULLY_UNLOCKED) continue;
+    if (!nodeDone(player.id, node.$hash)) continue;
     const system = TREE_SYSTEM.get(node.ProgressionTree);
     if (system === "SYSTEM_TECH") techs++;
     else if (system === "SYSTEM_CULTURE") { civics++; civicNodes.push(node.ProgressionTreeNodeType.replace("NODE_CIVIC_", "")); }
@@ -324,19 +337,21 @@ function buildCheck(player, turn) {
   log("BUILD", JSON.stringify(out));
 }
 
-// Gate check: items unlocked by a later age's techs or civics, for a civ that has not passed
-// that age's gate. The engine should refuse them (NeededUnlock). Asks the production screen's query.
-const LATER_ITEMS = { EX: new Set(), MO: new Set() };
+// Gate check: items unlocked by a later age's techs (or civics), for a civ that has not passed that
+// age's tech (or civic) Breakthrough. The engine should refuse them (NeededUnlock). Asks the production
+// screen's query.
+const LATER_ITEMS = { TECH_EX: new Set(), TECH_MO: new Set(), CIVIC_EX: new Set(), CIVIC_MO: new Set() };
 for (const u of GameInfo.ProgressionTreeNodeUnlocks) {
-  const n = u.ProgressionTreeNodeType;
   // Main trees only: a civ's unique tree (NODE_CIVIC_EX_ABBASID_...) is gated by the civ itself.
-  const age = /^NODE_(TECH_EX|CIVIC_EX_MAIN)_/.test(n) ? "EX" : /^NODE_(TECH_MO|CIVIC_MO_MAIN)_/.test(n) ? "MO" : null;
-  if (age && (u.TargetKind === "KIND_UNIT" || u.TargetKind === "KIND_CONSTRUCTIBLE")) LATER_ITEMS[age].add(u.TargetType);
+  const m = /^NODE_(TECH|CIVIC)_(EX|MO)_/.exec(u.ProgressionTreeNodeType);
+  if (!m || (m[1] === "CIVIC" && !u.ProgressionTreeNodeType.includes("_MAIN_"))) continue;
+  if (u.TargetKind === "KIND_UNIT" || u.TargetKind === "KIND_CONSTRUCTIBLE") LATER_ITEMS[`${m[1]}_${m[2]}`].add(u.TargetType);
 }
 function gateCheck(player, turn, civAge) {
   const capitalId = (player.Cities?.getCityIds() ?? []).find((id) => Cities.get(id)?.isCapital);
   if (capitalId === undefined) return;
-  const locked = civAge === "AQ" ? ["EX", "MO"] : civAge === "EX" ? ["MO"] : [];
+  const locked = (civAge === "AQ" ? ["TECH_EX", "TECH_MO"] : civAge === "EX" ? ["TECH_MO"] : [])
+    .concat(["EX", "MO"].filter((a) => !hasNode(player.id, CIVIC_GATE[a])).map((a) => `CIVIC_${a}`));
   if (locked.length === 0) return;
   const out = { age: GameInfo.Ages.lookup(Game.age)?.AgeType, turn, id: player.id, civAge, ok: [], needUnlock: 0, other: 0, notListed: 0 };
   for (const [query, table, key] of [[CityQueryType.Unit, GameInfo.Units, "UnitType"],
@@ -361,6 +376,118 @@ function gateCheck(player, turn, civAge) {
   }
   out.ok = { n: out.ok.length, sample: out.ok.slice(0, 6) };
   log("GATE", JSON.stringify(out));
+}
+
+// Civic gate check: later-age civics (main tree, civic gates, later-age civ trees), with the engine's
+// verdict as the civic screen asks it (SET_CULTURE_TREE_NODE). A player report (2026-10-29): Economics
+// stayed locked after the Exploration Breakthrough, and no test civ ever had an Exploration civic.
+// The gate of a later-age main-tree or Test of Time civic is the civic Breakthrough of its age (a civic
+// node, researched with culture); a unique civ tree shows with the tech Breakthrough (rule 5e); branch
+// trees keep their base-game conditions.
+//   stuck: all prereqs complete and the gate of that age complete, but refused at two checks in a row (FAIL;
+//          the first check after a load counts, so a 20-turn run from a save can show it)
+//   leak:  allowed without the gate of that age, prereqs or not (FAIL); also a later-age tree shown early
+// A control civic (no age gate, prereqs complete) shows that the verdict works for this player.
+const CIVIC_PREREQS = new Map();
+for (const p of GameInfo.ProgressionTreePrereqs) {
+  if (!CIVIC_PREREQS.has(p.Node)) CIVIC_PREREQS.set(p.Node, []);
+  CIVIC_PREREQS.get(p.Node).push(p.PrereqNode);
+}
+function civicAge(type, tree) {
+  const m = /^NODE_CIVIC_(EX|MO)_MAIN_/.exec(type) ?? /^TREE_CIVICS?_(EX|MO)_/.exec(tree);
+  if (m) return m[1];
+  return type.startsWith("NODE_CIVIC_CA_EXPLORATION") ? "EX" : type.startsWith("NODE_CIVIC_CA_MODERN") ? "MO" : null;
+}
+let civicArgProbed = false;
+function civicVerdict(id, node) {
+  const ask = (v) => Game.PlayerOperations.canStart(id, PlayerOperationTypes.SET_CULTURE_TREE_NODE, { ProgressionTreeNodeType: v }, false);
+  const byHash = safeCall(() => ask(node.$hash));
+  if (byHash?.Success) return { ok: true, arg: "hash" };
+  const byIndex = safeCall(() => ask(node.$index));
+  if (byIndex?.Success) return { ok: true, arg: "index" };
+  const why = byHash?.FailureReasons ?? byIndex?.FailureReasons ?? (typeof byHash === "string" ? byHash : null);
+  return { ok: false, why: why ? JSON.stringify(why).slice(0, 80) : null };
+}
+// Civics for one civ only (the Test of Time tree's Renaissance civics): refused for other civs by design.
+const TRAIT_CIVICS = new Set([...GameInfo.ProgressionTreeNodeTraits ?? []].map((r) => r.ProgressionTreeNodeType));
+// Choose-one trees (the ideologies share a MultipleUnlockName): once a civ may research or has one of
+// them, the engine refuses the others by design (iteration 20261029-144431).
+const CHOICE_GROUP = new Map();
+for (const t of GameInfo.ProgressionTrees) if (t.MultipleUnlockName) CHOICE_GROUP.set(t.ProgressionTreeType, t.MultipleUnlockName);
+const civicStuckSince = new Map();
+function civicGateCheck(player, turn) {
+  const id = player.id;
+  // Later-age civics need the civic Breakthrough of their age; the civic Breakthrough itself only its prereqs.
+  const gates = { EX: hasNode(id, CIVIC_GATE.EX), MO: hasNode(id, CIVIC_GATE.MO) };
+  const trees = new Set((player.Culture?.getAvailableTrees() ?? []).map((t) => GameInfo.ProgressionTrees.lookup(t)?.ProgressionTreeType));
+  const techGates = { EX: hasNode(id, GATE), MO: hasNode(id, MO_GATE) };
+  const out = { turn, age: GameInfo.Ages.lookup(Game.age)?.AgeType, id, gates, control: null, open: [], waiting: 0, stuck: [], leak: [] };
+  // The gate a later-age civic needs: none for the civic gate itself and for branch trees (Theology,
+  // ideologies: their own base-game conditions); the civic gate of its age for main-tree and Test of Time
+  // civics (rule 5i); the tech gate for a unique civ tree (its reveal, rule 5e).
+  const passedFor = (type, tree, age) => type === CIVIC_GATE[age] || /_BRANCH_/.test(tree) ? true
+    : /^NODE_CIVIC_(EX|MO)_MAIN_/.test(type) || tree.endsWith("_TEST_OF_TIME") ? gates[age] : techGates[age];
+  // Choose-one trees: the trees of a group that the civ has started or may start (the others are refused).
+  const taken = new Map();
+  const take = (group, tree) => { if (!taken.has(group)) taken.set(group, new Set()); taken.get(group).add(tree); };
+  for (const node of GameInfo.ProgressionTreeNodes) {
+    const group = CHOICE_GROUP.get(node.ProgressionTree);
+    if (group && hasNode(id, node.ProgressionTreeNodeType)) take(group, node.ProgressionTree);
+  }
+  for (const node of GameInfo.ProgressionTreeNodes) {
+    const type = node.ProgressionTreeNodeType, tree = node.ProgressionTree;
+    if (TREE_SYSTEM.get(tree) !== "SYSTEM_CULTURE" || !trees.has(tree) || hasNode(id, type)) continue;
+    const age = civicAge(type, tree);
+    // Control from the main tree only: an old civ tree's civic can be refused for other reasons.
+    if (!age && (out.control || !/^NODE_CIVIC_(AQ|EX|MO)_MAIN_/.test(type))) continue;
+    const passed = !age || passedFor(type, tree, age);
+    const missing = (CIVIC_PREREQS.get(type) ?? []).filter((p) => !hasNode(id, p));
+    // Without its gate a civic is asked even with prereqs missing: a grant or a hole in the chain is a leak.
+    if (missing.length > 0 && passed) { if (age) out.waiting++; continue; }
+    const v = civicVerdict(id, node);
+    const n = type.replace(/^NODE_CIVIC_/, "");
+    if (!age) {
+      out.control = { n, ...v };
+      if (!civicArgProbed) { civicArgProbed = true; log("CIVICPROBE", JSON.stringify({ id, n, ...v })); }
+      continue;
+    }
+    const group = CHOICE_GROUP.get(tree);
+    if (v.ok && group) take(group, tree);
+    if (v.ok && !passed) out.leak.push(n);
+    else if (v.ok) out.open.push(n);
+    else if (passed && missing.length === 0 && !TRAIT_CIVICS.has(type)) out.stuck.push({ n, why: v.why, group, tree });
+  }
+  // A refused civic of a choice group is by design only when the civ took another tree of that group.
+  out.stuck = out.stuck.filter((s) => !(s.group && taken.has(s.group) && !taken.get(s.group).has(s.tree)))
+    .map(({ n, why }) => ({ n, why }));
+  // A later-age tree shown before its gate (Test of Time: civic gate, rule 5i; unique tree: tech gate, rule 5e).
+  for (const tree of trees) {
+    const m = tree ? /^TREE_CIVICS?_(EX|MO)_(.*)$/.exec(tree) : null;
+    if (!m || m[2] === "MAIN" || m[2].startsWith("BRANCH_")) continue;
+    const ok = m[2] === "TEST_OF_TIME" ? gates[m[1]] : techGates[m[1]];
+    if (!ok) log("FAIL", `turn ${turn}: player ${id} has the later-age civic tree ${tree} before its gate`);
+  }
+  // The verdict counts only if the control civic is allowed (no control: every civic without a gate is done).
+  const trusted = !out.control || out.control.ok;
+  if (trusted && out.leak.length > 0) {
+    log("FAIL", `turn ${turn}: player ${id} may research later-age civics without its gate: ${out.leak.slice(0, 6).join(",")}`);
+  }
+  for (const s of out.stuck) {
+    const key = `${id}:${s.n}`;
+    if (!civicStuckSince.has(key)) civicStuckSince.set(key, turn);
+    if (trusted && civicStuckSince.get(key) < turn) {
+      log("FAIL", `turn ${turn}: player ${id} cannot research ${s.n} (prereqs and gate complete since turn ${civicStuckSince.get(key)}): ${s.why}`);
+    }
+  }
+  for (const key of [...civicStuckSince.keys()]) {
+    if (key.startsWith(`${id}:`) && !out.stuck.some((s) => key === `${id}:${s.n}`)) civicStuckSince.delete(key);
+  }
+  out.trusted = trusted;
+  out.laterTrees = [...trees].filter((t) => t && /^TREE_CIVICS?_(EX|MO)_/.test(t) && !t.endsWith("_MAIN"))
+    .map((t) => t.replace(/^TREE_CIVICS?_/, ""));
+  out.open = out.open.slice(0, 8);
+  out.stuck = out.stuck.slice(0, 4);
+  log("CIVICGATE", JSON.stringify(out));
 }
 
 // The world snapshot runs once per checked turn. Each civ is checked during its own turn:
@@ -401,15 +528,17 @@ function playerCheck(player, turn) {
   }
   const exCivics = explorationTechs(id, "NODE_CIVIC_EX_MAIN_");
   const moCivics = explorationTechs(id, "NODE_CIVIC_MO_MAIN_");
-  if ((exCivics > 0 && !gate) || (moCivics > 0 && !moGate)) {
-    log("FAIL", `turn ${turn}: player ${id} has main-tree civics of an age it has not entered (EX ${exCivics}, MO ${moCivics})`);
+  const civicGate = hasNode(id, CIVIC_GATE.EX), moCivicGate = hasNode(id, CIVIC_GATE.MO);
+  const civicAgeNow = moCivicGate ? "MO" : civicGate ? "EX" : "AQ";
+  if ((exCivics > 0 && !civicGate) || (moCivics > 0 && !moCivicGate)) {
+    log("FAIL", `turn ${turn}: player ${id} has main-tree civics without the civic Breakthrough of their age (EX ${exCivics}, MO ${moCivics})`);
   }
   if (moTechs > 0 && !moGate) {
     log("FAIL", `turn ${turn}: player ${id} has Modern techs without ${MO_GATE}: ${completedNodes(id, "NODE_TECH_MO_").join(",")}`);
   }
   const buildings = explorationBuildings(player);
   log("PLAYER", JSON.stringify({
-    age: worldAge, turn, id, civAge,
+    age: worldAge, turn, id, civAge, civicAge: civicAgeNow,
     civ: (GameInfo.Civilizations.lookup(player.civilizationType)?.CivilizationType ?? "").replace("CIVILIZATION_", ""),
     gate, oceanTech: ocean, exTechs, moTechs, exCivics, moCivics,
     exBuildings: buildings.length, exBuildingTypes: [...new Set(buildings)].slice(0, 4).map(short),
@@ -419,7 +548,7 @@ function playerCheck(player, turn) {
       gov: (GameInfo.Governments.lookup(player.Culture?.getGovernmentType())?.GovernmentType ?? "").replace("GOVERNMENT_", ""),
   }));
   const { civicNodes, ...state } = continuityState(player);
-  log("STATE", JSON.stringify({ age: worldAge, turn, id, civAge, ...state }));
+  log("STATE", JSON.stringify({ age: worldAge, turn, id, civAge, civicAge: civicAgeNow, ...state }));
   if (firstCheckAfterLoad) logChunks("CIVICS", { when: "start", age: worldAge, id }, "nodes", civicNodes);
   if (firstCheckAfterLoad) logChunks("UNITS", { when: "start", age: worldAge, id }, "types", unitTypes(player));
   if (firstCheckAfterLoad) logChunks("POLICIES", { when: "start", age: worldAge, id }, "types", policyNames(player));
@@ -440,6 +569,7 @@ function playerCheck(player, turn) {
   if (firstCheckAfterLoad) logConstructibles("CONS", player, { when: "start", age: worldAge });
   if (turn % BUILD_CHECK_EVERY === 0) buildCheck(player, turn);
   if (turn % GATE_CHECK_EVERY === 0) gateCheck(player, turn, civAge);
+  if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) civicGateCheck(player, turn);
   if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) catchupCheck(player, turn);
 }
 

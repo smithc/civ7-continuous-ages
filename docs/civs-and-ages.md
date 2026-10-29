@@ -24,11 +24,17 @@ differ in both directions:
 
 | Case | Example | What the civ has |
 | --- | --- | --- |
-| **Ahead of the world** | A civ researches the Exploration Breakthrough while the world is in Antiquity | Exploration techs, civics, units and buildings, ocean travel; not the Exploration world systems (treasure fleets, Distant Lands legacy paths) until the world gets there |
+| **Ahead of the world** | A civ researches the Exploration Breakthrough while the world is in Antiquity | Exploration techs, units and buildings, ocean travel; not the Exploration world systems (treasure fleets, Distant Lands legacy paths) until the world gets there |
 | **Same as the world** | The normal case | Everything of its age |
 | **Behind the world** | The world enters Exploration, but the civ has not researched the Exploration Breakthrough | Its Antiquity content and everything it built; no Exploration content until its Breakthrough; the Exploration world systems run around it |
 
 A civ behind the world can catch up at any time by researching the Breakthrough.
+
+The civic tree has its own Breakthrough of each age, researched with culture (see
+[Mechanics](mechanics.md#civics)). It opens that age's civics, and the content they unlock. So a civ
+can also be ahead or behind in civics: a civ with strong culture and weak science can research
+Exploration civics while its civ age is still Antiquity, and the opposite. "Civ age" on this page
+means the tech Breakthroughs.
 
 ## The civ choice at a world transition
 
@@ -42,18 +48,28 @@ world transition, as in the base game.
 A civ that is **behind** its Breakthrough can still take a new civ of the new age at the world
 transition. The mod then locks the new civ's content until the civ's own Breakthrough:
 
-- its unique civic tree, unique units, buildings and improvements;
+- its unique civic tree (the tree shows with the Breakthrough);
+- its unique units, buildings and improvements that have no unlock in the base game;
 - its civ abilities (the modifiers of its civ traits);
-- legacy cards that would grant a node of the new age.
+- legacy cards that would grant a tech of the new age (a card that grants a civic waits for the
+  civic Breakthrough of that age).
 
 What the civ gets at once is the new civ's **name**, and the game converts some kept units to the new
 civ's unique versions (for example Army Commander to Soltan). This is called the "half swap".
 
 ### Keeping your civ (Test of Time)
 
-A civ can keep its civ at a world transition. It then gets the new age's Test of Time civic tree
-(locked until its Breakthrough, like every later-age civic tree). This is the best choice for a civ
-that is behind its Breakthrough: it avoids the half swap.
+A civ can keep its civ at a world transition. It then gets the new age's Test of Time civic tree when
+it researches the civic Breakthrough of that age. The tree stays in later worlds while the civ keeps
+its civ, with its completed civics. This is the best choice for a civ that is behind its
+Breakthrough: it avoids the half swap.
+
+The Test of Time civic **Syncretism** lets the civ adopt a "legacy" civ of the new age, with its
+traits (for example Rome takes the Norman traits), as in the base game. It can then build that
+civ's unique units, buildings and improvements. Known limits (see [Known limits](known-limits.md)):
+the legacy civ's improvements and buildings can come before the civ's Breakthrough tech
+(U-LEGACY-ITEMS), and at the next load the mod can give it extra units for the legacy unique units
+(U-TOT-SHADOW). Up to version 0.2.1 the Test of Time tree was locked, so no civ got a legacy civ.
 
 When you play, the civ choice screen lists your current civ as a valid choice.
 
@@ -71,9 +87,16 @@ AI take a locked civ or a civ of another age, so the mod does not try this.
 
 A civ's unique content belongs to the civ's age:
 
-- **Unique civic trees** of Exploration and Modern civs need that age's Breakthrough (their first
-  civics).
-- **Test of Time trees** and **branch trees** of a later age need that age's Breakthrough.
+- **Unique civic trees** of a later age show when the civ researches that age's Breakthrough tech
+  (the game's reveal modifier of the civ's trait, gated like the civ abilities below). A civ gets a
+  unique tree only with its civ, at a world transition.
+- **Test of Time trees** of a later age show when the civ researches that age's civic Breakthrough,
+  and they stay in later worlds while the civ keeps its civ.
+- **Branch trees** keep their base-game conditions: the Theology tree needs a holy city, and the
+  ideology trees need Political Theory (a Modern civic). Unlike the base game, the Theology tree
+  stays after the Exploration world, so its civics and policies (for example Evangelism) are kept.
+- Before version 0.2.2 the first civics of all these trees needed the Breakthrough tech, and the
+  game never opened them: no civ could research them, not even an ideology.
 - **Unique units, buildings and improvements** that have no unlock in the base game get the
   Breakthrough as their unlock.
 - **Civ abilities**: each modifier of a trait that only one Exploration or Modern civ has (178
@@ -90,8 +113,9 @@ civ's unique content in Antiquity. This matches the base game.
 ### Antiquity world
 
 - Every civ starts in Antiquity.
-- A civ that researches the Exploration Breakthrough gets Exploration techs, civics, units and
-  buildings, and ocean travel. The deep-ocean rule (ends the turn until Shipbuilding) applies.
+- A civ that researches the Exploration Breakthrough gets Exploration techs, units and buildings,
+  and ocean travel. The deep-ocean rule (ends the turn until Shipbuilding) applies. A civ that
+  researches the Exploration civic Breakthrough gets the Exploration civics.
 - Exploration world systems (treasure fleets, the Distant Lands, Exploration legacy paths) do not
   start. Antiquity legacy paths and crises run as in the base game.
 - A civ can even research the Modern Breakthrough in the Antiquity world, if it gets that far.
@@ -101,7 +125,7 @@ civ's unique content in Antiquity. This matches the base game.
 - Nothing resets at the transition (see [Mechanics](mechanics.md#the-world-transition-no-reset)).
 - Civs behind their Exploration Breakthrough keep Antiquity content and research toward it. Deep
   ocean is open to every civ from the Exploration world on, as in the base game.
-- Civs ahead of the world can research the Modern Breakthrough and get Modern techs, civics, units
+- Civs ahead of the world can research the Modern Breakthroughs and get Modern techs, civics, units
   and buildings. Modern world systems wait for the Modern world.
 - The free ship of Exploration civs comes once per civ, at the later of its Exploration Breakthrough
   and the Exploration world.
@@ -121,9 +145,14 @@ it keeps everything and continues.
 
 **A slow civ.** Persia has not researched the Exploration Breakthrough when the world enters
 Exploration. With the default AI setting, the AI may take a new civ, for example Abbasid. Persia's
-units, cities and research stay. Abbasid's civic tree, unique units and abilities stay locked until
-the civ researches the Exploration Breakthrough.
+units, cities and research stay. Abbasid's unique units and abilities stay locked until the civ
+researches the Exploration Breakthrough. Abbasid's civic tree shows at that time too.
 
-**Keeping the civ.** Egypt keeps its civ at the transition. It gets the Exploration Test of Time tree,
-locked until its Breakthrough. Some of its completed Egyptian civics may need to be researched again
-(known limit).
+**A cultural civ.** Greece has strong culture but weak science. It finishes the Antiquity civics,
+then researches the Exploration civic Breakthrough and the Exploration civics, while its techs are
+still in Antiquity. Its Exploration techs, units and ocean travel wait for the Exploration
+Breakthrough tech.
+
+**Keeping the civ.** Egypt keeps its civ at the transition. It gets the Exploration Test of Time
+tree when it researches the Exploration civic Breakthrough, and keeps that tree in the Modern world.
+Some of its completed Antiquity Egyptian civics may need to be researched again (known limit).
