@@ -81,7 +81,7 @@ The game loaded the option's rules only in the Exploration and Modern worlds and
 value. A full three-age game with +100% (seed 777, run 20261025-165729) passed all the
 standard checks. The option shows in the game setup's advanced options, below Age Transition Impact (checked by hand).
 The costs in the Modern world, of civ-specific civic trees and of the civic Breakthroughs (new in
-version 0.2.2) were not measured.
+version 0.3.0) were not measured.
 
 ## Game speed
 

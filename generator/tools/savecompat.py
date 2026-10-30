@@ -2,7 +2,7 @@
 
 A saved game refers to game objects by their type and modifier ids. If a new version removes or
 renames one that an old save uses, the save can fail to load or lose state without an error (in
-0.2.2 a renumbering renamed 42 game modifiers of rule 5c; this check found it). For each world age it
+0.3.0 a renumbering renamed 42 game modifiers of rule 5c; this check found it). For each world age it
 loads the base game, the DLC and each mod build into the offline database, and compares every table.
 
 Usage (in generator/, after `python build_mod.py` for the current build):

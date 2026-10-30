@@ -26,15 +26,15 @@ reset of a civ's progress except where noted.
 
 ## Updating a game in progress (from 0.2.1)
 
-Saves of 0.2.1 load with 0.2.2, and every civ keeps its state. Tested with five 0.2.1 saves (Antiquity
-turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each played 20 turns with 0.2.2,
+Saves of 0.2.1 load with 0.3.0, and every civ keeps its state. Tested with five 0.2.1 saves (Antiquity
+turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each played 20 turns with 0.3.0,
 through the next world transition where there was one, and one 0.2.0 save of a human game
 (`tools/savecompat.py` and the load test, see [Releasing](releasing.md#save-compatibility)):
 
 - Cities, towns, units, traditions and policies are the same after the load. The stuck civics open
   at once: each civ can research its civic Breakthrough.
 - One difference until the next world transition: a civ that kept its civ already shows the Test of
-  Time tree of the current age (0.2.1 showed it but kept it locked). In 0.2.2 that tree has no locked
+  Time tree of the current age (0.2.1 showed it but kept it locked). In 0.3.0 that tree has no locked
   first civics, so the civ can research it before its civic Breakthrough. The tree was revealed in
   the saved game, which the new rules cannot take back; the next world transition sets the trees
   again (iterations 20261029-184748, 184915, 185138).
@@ -62,7 +62,7 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   "legacy" civ of the new age with the Test of Time civic Syncretism (`MOD_SYNCRETISM`,
   `EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE`), with that civ's traits (`LegacyCivilizationTraits`), and
   can build that civ's unique units (rule 5j: after the civ's Breakthrough tech). New in version
-  0.2.2: up to 0.2.1 the Test of Time tree was locked, so no civ got a legacy civ. At the
+  0.3.0: up to 0.2.1 the Test of Time tree was locked, so no civ got a legacy civ. At the
   next load the game converts those units to their base types and leaves two shadows for each. The
   mod's shadow step counts two shadows only for the unique units of the civ's own civs, so the extra
   shadows make new units. Iteration 20261029-150344: Rome (legacy Norman), 17 Chevaliers, then 15
@@ -71,6 +71,15 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   legacy civ, or which units the game converted, at the load. The test report names it as
   `KNOWN LIMIT (U-TOT-SHADOW)`, only for a civ that kept its civ and only up to the number of legacy
   unique units gone, so any other duplicate still fails.
+
+- **DLC content of an earlier age is not in the later worlds.** The mod copies the content of the
+  other ages from the base game only (`other_age_groups(base_mods, ...)` in `build_mod.py`, the same
+  since 0.1.0). A DLC civ's own content of an earlier age, for example Assyria's unique unit Magarru
+  (`DLC/assyria`, `units.xml`, loaded in Antiquity only), is therefore not in the Exploration world.
+  At the transition the game replaces such a unit, and an extra unit can come back. Iteration
+  20261029-204508: Assyria (to Inca) had one Magarru and got a Courser and a Horseman. Other DLC
+  content of an earlier age (unique buildings, civic trees) was not checked. To be fixed in a later
+  version: copy the DLC content of the other ages too.
 
 ## Ideas not built
 

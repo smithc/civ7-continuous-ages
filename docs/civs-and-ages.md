@@ -98,7 +98,7 @@ A civ's unique content belongs to the civ's age:
 - **Branch trees** keep their base-game conditions: the Theology tree needs a holy city, and the
   ideology trees need Political Theory (a Modern civic). Unlike the base game, the Theology tree
   stays after the Exploration world, so its civics and policies (for example Evangelism) are kept.
-- Before version 0.2.2 the first civics of all these trees needed the Breakthrough tech, and the
+- Before version 0.3.0 the first civics of all these trees needed the Breakthrough tech, and the
   game never opened them: no civ could research them, not even an ideology.
 - **Unique units, buildings and improvements** that have no unlock in the base game get the
   Breakthrough as their unlock.

@@ -35,7 +35,7 @@ import classification as cls
 from build_test1 import transition_script, write_xml, EXCLUDE_PATTERNS, TEXT_EXCLUDE
 
 MOD_ID = "continuous-ages"
-MOD_VERSION = "0.2.1"  # the release version (docs/releasing.md); the zip name and build-info.json use it
+MOD_VERSION = "0.3.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
 # Plain text in the modinfo, not text keys: the Steam Workshop uploader shows the modinfo's Name and
@@ -63,10 +63,10 @@ RECOMMENDED SETTINGS
 - Start age: Antiquity.
 - AI civ selection at age transition: Mirroring (default), or Current Civilization Persistence.
 
-NEW IN 0.2.2
+NEW IN 0.3.0
 - Fix: in 0.2.1 no civ could research an Exploration or Modern civic. The civic tree now has its own Breakthroughs.
 - Test of Time civic trees open with the civic Breakthrough. Syncretism (a legacy civ) needs the Breakthrough tech and works only in its own world age.
-- Games saved with 0.2.1 continue with 0.2.2. The locked civics open at once.
+- Games saved with 0.2.1 continue with 0.3.0. The locked civics open at once.
 
 STATUS
 Playable, in testing. Full AI games pass all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.
@@ -666,7 +666,7 @@ def policy_unlocks(sims: dict) -> list[tuple[str, str, int]]:
             out.setdefault((node, trad, int(depth or 1)), None)
     # Main-tree rows first, in the order of 0.2.1: the list position is part of each modifier id
     # (policy_keep_modifiers), and the ids are game modifiers in saved games, so they must not change.
-    # The branch-tree rows (new in 0.2.2) come after them.
+    # The branch-tree rows (new in 0.3.0) come after them.
     return sorted(k for k in out if "_MAIN_" in k[0]) + sorted(k for k in out if "_MAIN_" not in k[0])
 
 
