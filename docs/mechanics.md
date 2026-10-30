@@ -72,7 +72,8 @@ The civic tree has its own Breakthrough of each age. A civ researches it with cu
   Breakthrough. Only the last age has the base game's repeatable Future Civic (and Future Tech).
 - Civ-specific civic trees of a later age: a unique tree shows with the civ's Breakthrough tech, a
   Test of Time tree with its civic Breakthrough, and branch trees (Theology, ideologies) keep their
-  base-game conditions. See [Civs and ages](civs-and-ages.md#unique-content-civ-abilities-and-civic-trees).
+  base-game conditions. The Test of Time civic Syncretism (a legacy civ) also needs the Breakthrough
+  tech, and works only in its own world age. See [Civs and ages](civs-and-ages.md#unique-content-civ-abilities-and-civic-trees).
 - Why no tech prereq on a civic: the game never opens a prereq that is in another tree. Up to
   version 0.2.1 the first civics of each later age needed the Breakthrough tech, and no civ could ever
   research an Exploration or Modern civic (a player report; iterations 20261029-141650 and 142802).

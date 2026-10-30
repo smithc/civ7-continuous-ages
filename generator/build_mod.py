@@ -531,6 +531,20 @@ class WorldBuild:
                 lines.append(f"INSERT OR IGNORE INTO TraitModifiers (TraitType, ModifierId) SELECT '{trait}', '{m.get('id')}' "
                              f"WHERE EXISTS (SELECT 1 FROM Traits WHERE TraitType = '{trait}');")
             defs.append(m)
+        # The Test of Time civic Syncretism lets the civ adopt a legacy civ of that age, with its traits
+        # (EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE). Its unique buildings and improvements then came before
+        # the civ's Breakthrough tech (U-LEGACY-ITEMS: 106 started in iteration 20261029-164407). A
+        # legacy civ is civ content, so the grant also needs the Breakthrough tech of the tree's age.
+        # A Test of Time tree kept in a later world (rule 5i) applied its completed Syncretism again at the load,
+        # and the later world's data lists that world's legacy civs: Modern legacy buildings came with civ and
+        # civic age Exploration (iteration 20261029-170027). So the grant also needs its own world age: one
+        # legacy civ per age, from that age's Syncretism, as in the base game.
+        sync = syncretism_modifiers(self.game)
+        lines += ["-- 5j. Syncretism (legacy civ) of a later age also needs that age's Breakthrough tech, and only in that world age."]
+        for node, base_id, m in sync:
+            lines.append(f"UPDATE ProgressionTreeNodeUnlocks SET TargetType = '{m.get('id')}' "
+                         f"WHERE ProgressionTreeNodeType = '{node}' AND TargetType = '{base_id}';")
+            defs.append(m)
         lines += [""]
         if self.world == "AGE_ANTIQUITY":
             lines += ["-- 6. Exploration ocean movement rule (deep ocean ends the turn until Shipbuilding).",
@@ -804,6 +818,44 @@ def tot_reveal_modifiers(game: Path) -> dict[str, tuple[str, str, ET.Element]]:
                         out[age] = (row.get("TraitType"), mid, m)
         if age not in out:
             raise SystemExit(f"No Test of Time tree reveal found for {age} (game patch?)")
+    return out
+
+
+def syncretism_modifiers(game: Path) -> list[tuple[str, str, ET.Element]]:
+    """(node, modifier id, copy CA_<id>_<age>) for each later age's Test of Time node that unlocks the
+    syncretic choice (EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE, a legacy civ), with that age's Breakthrough
+    tech and that world age as extra owner requirements. One copy per age: the base modifier is shared
+    by all ages."""
+    g = "{GameEffects}"
+    defs = {}
+    for f in sorted((game / "Base" / "modules").glob("*/data/*gameeffects*.xml")):
+        for el in ET.parse(f).getroot():
+            if c.strip_ns(el.tag) == "Modifier" and el.get("effect") == "EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE":
+                defs.setdefault(el.get("id"), el)
+    out = []
+    for age in GATES:
+        for f in sorted((game / "Base" / "modules" / age.lower().replace("_", "-") / "data").glob("progression-trees-*.xml")):
+            for table in ET.parse(f).getroot():
+                if c.strip_ns(table.tag) != "ProgressionTreeNodeUnlocks":
+                    continue
+                for row in table:
+                    mid = row.get("TargetType")
+                    if mid not in defs:
+                        continue
+                    m = ET.fromstring(ET.tostring(defs[mid]))
+                    m.set("id", f"CA_{mid}_{SHORT[age]}")
+                    reqs = ET.Element(f"{g}OwnerRequirements")
+                    m.insert(0, reqs)
+                    r = ET.SubElement(reqs, f"{g}Requirement", {"type": "REQUIREMENT_PLAYER_HAS_COMPLETED_PROGRESSION_TREE_NODE"})
+                    ET.SubElement(r, f"{g}Argument", {"name": "ProgressionTreeNodeType"}).text = GATES[age]
+                    ET.SubElement(r, f"{g}Argument", {"name": "MinDepth"}).text = "1"
+                    # In its own age only: in a later world the kept tree (rule 5i) applied it again at the
+                    # load, with that world's legacy civs, a second legacy civ the base game does not give.
+                    r = ET.SubElement(reqs, f"{g}Requirement", {"type": "REQUIREMENT_GAME_AGE_TYPE_MATCH"})
+                    ET.SubElement(r, f"{g}Argument", {"name": "AgeType"}).text = age
+                    out.append((row.get("ProgressionTreeNodeType"), mid, m))
+    if len(out) != len(GATES):
+        raise SystemExit(f"Expected one Syncretism node per later age, found {[n for n, _, _ in out]} (game patch?)")
     return out
 
 

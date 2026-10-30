@@ -66,10 +66,13 @@ Breakthrough: it avoids the half swap.
 
 The Test of Time civic **Syncretism** lets the civ adopt a "legacy" civ of the new age, with its
 traits (for example Rome takes the Norman traits), as in the base game. It can then build that
-civ's unique units, buildings and improvements. Known limits (see [Known limits](known-limits.md)):
-the legacy civ's improvements and buildings can come before the civ's Breakthrough tech
-(U-LEGACY-ITEMS), and at the next load the mod can give it extra units for the legacy unique units
-(U-TOT-SHADOW). Up to version 0.2.1 the Test of Time tree was locked, so no civ got a legacy civ.
+civ's unique units, buildings and improvements. A legacy civ is civ content, so the mod gives it
+only when the civ also has the Breakthrough tech of that age. Syncretism works only in its own world
+age: the old Test of Time tree stays in later worlds, but its Syncretism does not give a second
+legacy civ there. So a civ gets at most one legacy civ per age, as in the base game. Up to version
+0.2.1 the Test of Time tree was locked, so no civ got a legacy civ.
+Known limit: at the next load the mod can give the civ extra units for its legacy unique units
+(U-TOT-SHADOW, see [Known limits](known-limits.md)).
 
 When you play, the civ choice screen lists your current civ as a valid choice.
 

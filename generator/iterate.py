@@ -264,33 +264,6 @@ def log_lines(pattern: str) -> list[str]:
 _CIV_UNITS = None
 
 
-_LEGACY_ITEMS = None
-
-
-def legacy_split(leaks: list[tuple], players: list) -> tuple[list[tuple], list[tuple]]:
-    """Split production leaks into (real, U-LEGACY-ITEMS). Known limit: a civ that keeps its civ can adopt
-    a legacy civ (Test of Time civic Syncretism), and the game lets it build that civ's unique
-    improvements and buildings without the civic that unlocks them (Egypt, legacy Songhai: Caravanserai
-    with civ age Antiquity; iteration 20261029-162350). Only items of a legacy civ, built by a civ that
-    is not that civ."""
-    global _LEGACY_ITEMS
-    if _LEGACY_ITEMS is None:
-        _LEGACY_ITEMS = {}
-        for w in ("AGE_EXPLORATION", "AGE_MODERN"):
-            sim = c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True)
-            for item, civ in sim.db.execute(
-                    "SELECT x.ConstructibleType, l.CivilizationType FROM (SELECT ConstructibleType, TraitType FROM Buildings "
-                    "UNION SELECT ConstructibleType, TraitType FROM Improvements) x JOIN LegacyCivilizationTraits l "
-                    "ON l.TraitType = x.TraitType"):
-                _LEGACY_ITEMS.setdefault(item, set()).add(civ.replace("CIVILIZATION_", ""))
-    real, legacy = [], []
-    for leak in leaks:
-        w, t, p, item = leak[0], leak[1], leak[2], leak[4]
-        civ = next((r.get("civ") for r in players if r.get("age") == w and r.get("id") == p and r.get("turn", 0) >= t), None)
-        (legacy if item in _LEGACY_ITEMS and civ and civ not in _LEGACY_ITEMS[item] else real).append(leak)
-    return real, legacy
-
-
 _LEGACY_UNITS = None
 
 
@@ -971,27 +944,23 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
                     first.setdefault(item, int(row[0]))
     if qfile.exists():
         lines += ["## Production by world age and native age", ""] + production_by_world(qfile, ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"].index(players[0]["age"]) if players and players[0].get("age") in ("AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN") else 0) + [""]
-        leaks, legacy = legacy_split(production_leaks(qfile, players), players)
+        leaks = production_leaks(qfile, players)
         lines += ["## Later-age items started before the civ's gate (leaks)", ""]
         lines += [f"- {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in leaks[:25]]
-        lines += [f"- KNOWN LIMIT (U-LEGACY-ITEMS): {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}"
-                  for w, t, p, city, item, ca in legacy[:10]]
         if leaks:
             failed = True
-        elif not legacy:
+        else:
             lines.append("- none")
         lines.append("")
         # Purchases with gold or faith (CityPurchase.csv), the same rule (gotcha checker review 1, #7).
         pfile = LOGS / "CityPurchase.csv"
         if pfile.exists():
-            bought, legacy = legacy_split(production_leaks(pfile, players, item_col=3, names=item_names()), players)
+            bought = production_leaks(pfile, players, item_col=3, names=item_names())
             lines += ["## Later-age items bought before the civ's gate (leaks)", ""]
             lines += [f"- {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in bought[:25]]
-            lines += [f"- KNOWN LIMIT (U-LEGACY-ITEMS): {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}"
-                      for w, t, p, city, item, ca in legacy[:10]]
             if bought:
                 failed = True
-            elif not legacy:
+            else:
                 lines.append("- none")
             lines.append("")
     lines += ["## Exploration items produced (first turn in production)", ""]

@@ -45,8 +45,8 @@ reset of a civ's progress except where noted.
 - **Extra units for a civ that keeps its civ (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
   "legacy" civ of the new age with the Test of Time civic Syncretism (`MOD_SYNCRETISM`,
   `EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE`), with that civ's traits (`LegacyCivilizationTraits`), and
-  can build that civ's unique units. New in version 0.2.2: up to 0.2.1 the Test of Time tree was
-  locked (no Persistence run of 2026-10-25 had a legacy civ's items; 34 and 106 in today's). At the
+  can build that civ's unique units (rule 5j: after the civ's Breakthrough tech). New in version
+  0.2.2: up to 0.2.1 the Test of Time tree was locked, so no civ got a legacy civ. At the
   next load the game converts those units to their base types and leaves two shadows for each. The
   mod's shadow step counts two shadows only for the unique units of the civ's own civs, so the extra
   shadows make new units. Iteration 20261029-150344: Rome (legacy Norman), 17 Chevaliers, then 15
@@ -55,15 +55,6 @@ reset of a civ's progress except where noted.
   legacy civ, or which units the game converted, at the load. The test report names it as
   `KNOWN LIMIT (U-TOT-SHADOW)`, only for a civ that kept its civ and only up to the number of legacy
   unique units gone, so any other duplicate still fails.
-- **Legacy civ items before the Breakthrough (U-LEGACY-ITEMS).** A civ that adopts a legacy civ
-  (Syncretism, above) can build its unique improvements and buildings without the civic that unlocks
-  them, and before its own Breakthrough tech of that age: Syncretism needs only the civic
-  Breakthrough. Iteration 20261029-162350: Egypt (legacy Songhai) bought two Caravanserais with civ
-  age Antiquity, and later (legacy Siam) started Bangs with civ age Exploration in the Modern world;
-  iteration 20261029-164407 (every AI keeps its civ): 106 such items started. Egypt had no Songhai or
-  Siam civic, so the game gives these items through the legacy trait. Planned fix: Syncretism's grant
-  also needs the Breakthrough tech of its age. The test report names it as
-  `KNOWN LIMIT (U-LEGACY-ITEMS)`, only for a legacy civ's items built by a civ that is not that civ.
 
 ## Ideas not built
 
