@@ -658,7 +658,10 @@ def policy_unlocks(sims: dict) -> list[tuple[str, str, int]]:
                 "AND t.CultureSlotType = 'POLICY_CULTURE_SLOT' AND t.IsCrisis = 0 "
                 "AND (u.ProgressionTreeNodeType LIKE 'NODE_CIVIC_%_MAIN_%' OR u.ProgressionTreeNodeType LIKE 'NODE_CIVIC_%_BRANCH_%')"):
             out.setdefault((node, trad, int(depth or 1)), None)
-    return sorted(out)
+    # Main-tree rows first, in the order of 0.2.1: the list position is part of each modifier id
+    # (policy_keep_modifiers), and the ids are game modifiers in saved games, so they must not change.
+    # The branch-tree rows (new in 0.2.2) come after them.
+    return sorted(k for k in out if "_MAIN_" in k[0]) + sorted(k for k in out if "_MAIN_" not in k[0])
 
 
 def policy_keep_modifiers(pairs: list[tuple[str, str, int]]) -> list[ET.Element]:

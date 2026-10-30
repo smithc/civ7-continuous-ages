@@ -7,6 +7,7 @@ How to make a release of the mod: a zip on GitHub and an item on the Steam Works
 - [Why each release names a game version](#why-each-release-names-a-game-version)
 - [Release steps](#release-steps)
 - [Steam Workshop](#steam-workshop)
+- [Save compatibility](#save-compatibility)
 - [Compatibility table](#compatibility-table)
 - [Versions](#versions)
 
@@ -33,8 +34,10 @@ absent), but this has not been tested. Test it on a game without DLC before the 
    - the three-age test (`ContinuousAgesTransition.json`);
    - the stress test (`ContinuousAgesTransitionSeed777.json`);
    - one game played by hand through one age transition.
-3. Set `MOD_VERSION` in `generator/build_mod.py` (see [Versions](#versions)) and commit.
-4. Build the release:
+3. Check that saved games of the previous release still load (see
+   [Save compatibility](#save-compatibility)).
+4. Set `MOD_VERSION` in `generator/build_mod.py` (see [Versions](#versions)) and commit.
+5. Build the release:
 
    ```
    cd generator
@@ -46,11 +49,11 @@ absent), but this has not been tested. Test it on a game without DLC before the 
    writes `build/dist/continuous-ages-<mod version>-civ7-<game version>.zip`. It refuses test
    settings (`--checks`, `--fast-test`, `--age-points`) and a build with validation issues.
    If `build-info.json` says `"git_dirty": true`, commit first and build again.
-5. Make a GitHub release: tag `v<mod version>`, attach the zip, and in the notes give the game
+6. Make a GitHub release: tag `v<mod version>`, attach the zip, and in the notes give the game
    version from `build-info.json` and the main changes.
-6. Upload the same mod folder (`build/continuous-ages`, or the zip's `continuous-ages` folder) to the
+7. Upload the same mod folder (`build/continuous-ages`, or the zip's `continuous-ages` folder) to the
    Steam Workshop (below).
-7. Add a row to the [compatibility table](#compatibility-table).
+8. Add a row to the [compatibility table](#compatibility-table).
 
 ### Install from the zip (for players)
 
@@ -90,6 +93,38 @@ Workshop description checklist:
 - the recommended settings ([Settings](settings.md#summary));
 - the known limits ([Known limits](known-limits.md));
 - a link to this repository.
+
+## Save compatibility
+
+A player can update the mod in the middle of a game. A saved game records the mod's id and name, not
+its version, so the game loads it with whatever version is installed. The modinfo's `version`
+attribute is always `1`. A save refers to game objects by their type and modifier ids, so a new
+version must not remove or rename an id that an earlier version created.
+
+Two checks, before each release:
+
+1. **Database check** (about 2 minutes; build the current version first):
+
+   ```
+   cd generator
+   python build_mod.py
+   python tools/savecompat.py v<previous version>
+   ```
+
+   It builds the previous release in a temporary git worktree and compares both databases (base
+   game, DLC and mod) for each world age. It fails if a `Types` row or a modifier id was removed.
+   Other changes are listed for review. Ids that come from a list position (for example rule 5c's
+   `CA_KEEP_TRADITION_<policy>_<n>`) must keep their positions: add new rows after the old ones.
+2. **Load test** of real saves of the previous version: play the previous version (its worktree's
+   `iterate.py`) and keep some autosaves, at least one per world age and one just before each world
+   transition. Copy each one to `CA_COMPAT.Civ7Save` in the `Saves/Single` folder and run:
+
+   ```
+   python iterate.py --suite ContinuousAgesFromSaveCompat.json --no-fast-test --turns 20 --observe NONE --timeout 25
+   ```
+
+   Each run must pass. Also compare each civ's state at the save with its first state after the
+   load (cities, towns, units, policies and traditions equal; techs and civics not lower).
 
 ## Compatibility table
 

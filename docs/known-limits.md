@@ -6,6 +6,7 @@ reset of a civ's progress except where noted.
 ## Contents
 
 - [Engine limits](#engine-limits)
+- [Updating a game in progress (from 0.2.1)](#updating-a-game-in-progress-from-021)
 - [Not tested](#not-tested)
 - [Open checks](#open-checks)
 - [Ideas not built](#ideas-not-built)
@@ -22,6 +23,21 @@ reset of a civ's progress except where noted.
 | **U-POLICY-LOAD** | At the Modern load the game gives every civ the Exploration main-tree policies, earned or not; Levies and Divine Right then replace Conscription and Oratory. | Policies change, not lost. |
 | **U-GREAT-PERSON**, **U-CRISIS-UNIT** | Egypt's Tjaty great people are removed at each load. Plague Physicians end with their crisis. | As in the base game. |
 | **U-LEVY** | Independent powers research the joined tree at their own pace and can field later-age units, which a major civ can get by a levy before its own Breakthrough. | Rare (seen once, in a test with cheap techs). |
+
+## Updating a game in progress (from 0.2.1)
+
+Saves of 0.2.1 load with 0.2.2, and every civ keeps its state. Tested with five 0.2.1 saves (Antiquity
+turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each played 20 turns with 0.2.2,
+through the next world transition where there was one, and one 0.2.0 save of a human game
+(`tools/savecompat.py` and the load test, see [Releasing](releasing.md#save-compatibility)):
+
+- Cities, towns, units, traditions and policies are the same after the load. The stuck civics open
+  at once: each civ can research its civic Breakthrough.
+- One difference until the next world transition: a civ that kept its civ already shows the Test of
+  Time tree of the current age (0.2.1 showed it but kept it locked). In 0.2.2 that tree has no locked
+  first civics, so the civ can research it before its civic Breakthrough. The tree was revealed in
+  the saved game, which the new rules cannot take back; the next world transition sets the trees
+  again (iterations 20261029-184748, 184915, 185138).
 
 ## Not tested
 

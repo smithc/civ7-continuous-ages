@@ -85,6 +85,7 @@ automation, and writes `build/iterations/<time>/REPORT.md` with the logs and a c
 | All three ages, end to end | `python iterate.py --suite ContinuousAgesTransition.json --no-fast-test --turns 700 --observe NONE --timeout 150` | about 16 min |
 | Civs ahead of the world (seed 777, DLC civs) | `python iterate.py --suite ContinuousAgesTransitionSeed777.json --fast-test 0.4 --turns 700 --observe NONE --timeout 150` | about 15 min |
 | Antiquity to Exploration from a save | `python iterate.py --suite ContinuousAgesFromSaveAQ135.json --no-fast-test --turns 20 --observe NONE --timeout 25` | about 4 min |
+| A save of an earlier version (copied to `CA_COMPAT.Civ7Save`; see [Save compatibility](releasing.md#save-compatibility)) | `python iterate.py --suite ContinuousAgesFromSaveCompat.json --no-fast-test --turns 20 --observe NONE --timeout 25` | about 5 min |
 | Exploration to Modern from a save | `python iterate.py --suite ContinuousAgesFromSaveEX135.json --no-fast-test --turns 20 --observe NONE --timeout 25` | about 5 min |
 | Age Transition Impact: Regroup | `--suite ContinuousAgesTransitionOriginal.json` | about 16 min |
 | AI civs keep their civs (Persistence): Test of Time trees and legacy civs for every civ | `--suite ContinuousAgesTransitionPersist.json` or `ContinuousAgesTransitionSeed777Persist.json` | about 16 min |
