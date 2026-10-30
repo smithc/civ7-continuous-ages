@@ -45,9 +45,10 @@ MOD_DESCRIPTION = """One continuous game. Each civilization moves through the ag
 
 HOW IT WORKS
 - Your own age: one joined tech tree with two Breakthrough techs. Research the Exploration Breakthrough and the Modern Breakthrough to enter the next age, when you are ready. A small banner shows "Your age / World age".
+- Civics have their own Breakthroughs: the joined civic tree has an Exploration and a Modern Breakthrough too. Research them with culture to open the next age's civics, also before your tech Breakthrough. Culture always has a use.
 - The world still moves on: the world age changes at the normal time. Crises, legacy paths, treasure fleets, the Distant Lands and victories start with the world age, as in the base game.
 - No reset: cities stay cities, armies keep all their units, gold is not capped, old resources stay, and your techs, civics, policies and buildings stay.
-- Content waits for your age: later-age techs, civics, units, buildings, unique items and civ abilities need that age's Breakthrough, also after the world moves on.
+- Content waits for your age: later-age techs, units, buildings, unique items and civ abilities need that age's Breakthrough tech. Later-age civics need the civic Breakthrough. This stays true after the world moves on.
 - Units upgrade across ages, for example Phalanx to Swordsman and Pikeman to Line Infantry.
 
 CATCH-UP RESEARCH (OPTIONAL)
@@ -62,12 +63,17 @@ RECOMMENDED SETTINGS
 - Start age: Antiquity.
 - AI civ selection at age transition: Mirroring (default), or Current Civilization Persistence.
 
+NEW IN 0.2.2
+- Fix: in 0.2.1 no civ could research an Exploration or Modern civic. The civic tree now has its own Breakthroughs.
+- Test of Time civic trees open with the civic Breakthrough. Syncretism (a legacy civ) needs the Breakthrough tech and works only in its own world age.
+- Games saved with 0.2.1 continue with 0.2.2. The locked civics open at once.
+
 STATUS
 Playable, in testing. Full AI games pass all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.
 
 COMPATIBILITY
 - Version {mod_version}, built for Civilization VII {game_version}, with the base game and DLC civilizations.
-- Affects saved games: enable it before you start a new game.
+- Affects saved games: enable it before you start a new game. You can update the mod during a game from version 0.2.1.
 - Replaces the game's age transition script. Other mods that change that script will conflict.
 - Single player. Multiplayer is not tested.
 
