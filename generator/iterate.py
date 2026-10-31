@@ -223,6 +223,114 @@ def production_leaks(qfile: Path, players: list, item_col: int = 4, names: dict 
     return leaks
 
 
+def replace_starts(qfile: Path, players: list) -> tuple[list[str], bool]:
+    """Rule 2i on the production log (the ground truth; UI queries answer only for the observed player).
+    For each gap pair (a unique unit that waits for its Breakthrough, and the base unit of an earlier age it
+    replaces; the list the build wrote into ca-checks.js) and each civ of that pair's trait: base units
+    started before the civ's gate (the rule works: in 0.3.0 such a civ could not train them), base units
+    started after the gate (FAIL: the base game's replacement must hold), and unique units after the gate."""
+    worlds = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
+    m = re.search(r"const CA_REPLACE_GAPS = (\[.*?\]);", (MOD_DIR / "ui" / "ca-checks.js").read_text(encoding="utf-8"))
+    gaps = json.loads(m.group(1)) if m else []
+    if not gaps:
+        return ["## Unique units and their base units (rule 2i)", "", "- no gap pairs in this build", ""], False
+    civs_of = {}
+    for w in worlds:
+        for civ, trait in c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True).db.execute(
+                "SELECT CivilizationType, TraitType FROM CivilizationTraits"):
+            civs_of.setdefault(trait, set()).add(civ.replace("CIVILIZATION_", ""))
+    rank = {"AQ": 0, "EX": 1, "MO": 2}
+    gate_rank = {"AGE_EXPLORATION": 1, "AGE_MODERN": 2}
+    timeline = {}
+    for p in players:
+        if p.get("age") in worlds and "civAge" in p:
+            timeline.setdefault((p["age"], p["id"]), []).append((p["turn"], p["civ"], p["civAge"]))
+    base_world = worlds.index(players[0]["age"]) if players and players[0].get("age") in worlds else 0
+    by_item = {}
+    for g in gaps:
+        by_item.setdefault(g[0], []).append(("uu", g))
+        by_item.setdefault(g[1], []).append(("base", g))
+    counts, seg, last_turn, prev = {}, 0, 0, {}
+    for row in csv.reader(qfile.open(encoding="utf-8", errors="replace")):
+        if len(row) < 6 or not row[0].strip().isdigit():
+            continue
+        turn, pid, city, item = int(row[0]), int(row[1]), row[2].strip(), row[4].strip()
+        try:
+            progress = float(row[5])
+        except ValueError:
+            progress = 0.0
+        if turn < last_turn:
+            seg += 1
+            prev = {}
+        last_turn = turn
+        last = prev.get((pid, city))
+        prev[(pid, city)] = (item, progress)
+        if last is not None and last[0] == item and progress >= last[1]:
+            continue  # the same item still in production
+        world = worlds[min(base_world + seg, 2)]
+        checks = sorted(timeline.get((world, pid), []))
+        if not checks or item not in by_item:
+            continue
+        civ = checks[0][1]
+        before_turn = [a for t, _, a in checks if t <= turn]
+        after_turn = [a for t, _, a in checks if t >= turn]
+        for role, (uu, base, trait, age) in by_item[item]:
+            if civ not in civs_of.get(trait, ()):
+                continue
+            if before_turn and rank[before_turn[-1]] >= gate_rank[age]:
+                when = "after"
+            elif after_turn and rank[after_turn[0]] < gate_rank[age]:
+                when = "before"
+            else:
+                when = "unknown"
+            e = counts.setdefault((world, pid, civ, uu, base), _C())
+            e[f"{role}_{when}"] += 1
+    lines = ["## Unique units and their base units (rule 2i)", "",
+             f"Gap pairs in the build: {len(gaps)}. A civ of the pair's trait must be able to train the base unit "
+             "before its Breakthrough tech, and only the unique unit after it (production log; 'unknown' = between two checks).", ""]
+    failed = False
+    if not counts:
+        lines += ["- no civ of a gap pair's trait started either unit", ""]
+        return lines, False
+    lines += ["| World age | Player | Civ | Pair | Base before gate | Base after gate | Base unknown | Unique after gate |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for (world, pid, civ, uu, base), e in sorted(counts.items()):
+        bad = e["base_after"] > 0
+        failed |= bad
+        lines.append(f"| {world} | {pid} | {civ} | {uu.replace('UNIT_', '')} > {base.replace('UNIT_', '')} | {e['base_before']} | "
+                     f"{e['base_after']}{' FAIL' if bad else ''} | {e['base_unknown']} | {e['uu_after']} |")
+    return lines + [""], failed
+
+
+def bank_report(banks: list) -> tuple[list[str], bool]:
+    """Hidden culture and science (BANK records): yield that no node took, paid out one node per turn. A bank
+    that grows at 3 checks in a row past 3 turns of yield means a tree with no next node for the civ (the
+    0.2.1 civic dead end): FAIL (design goal 6). A bank from an earlier version's save only shrinks."""
+    series = {}
+    for r in banks:
+        for kind in ("culture", "science"):
+            e = r.get(kind) or {}
+            if "lo" in e:
+                series.setdefault((r.get("age"), r["id"], kind), []).append((r["turn"], e["lo"], max(1, e.get("rate") or 1)))
+    if not series:
+        return [], False
+    lines = ["## Hidden culture and science (yield no node took; design goal 6)", "",
+             "| World age | Player | Yield | Largest bank (turns of yield) | At turn | Growing at 3 checks in a row |",
+             "| --- | --- | --- | --- | --- | --- |"]
+    failed = False
+    for (age, pid, kind), s in sorted(series.items(), key=lambda x: (str(x[0][0]), x[0][1], x[0][2])):
+        s.sort()
+        top = max(s, key=lambda x: x[1] / x[2])
+        grow = any(all(s[i + k + 1][1] > s[i + k][1] for k in range(3)) and s[i + 3][1] > 3 * s[i + 3][2]
+                   for i in range(len(s) - 3))
+        failed |= grow
+        if top[1] > top[2] or grow:
+            lines.append(f"| {age} | {pid} | {kind} | {top[1]} ({top[1] / top[2]:.1f}) | {top[0]} | {'FAIL' if grow else 'no'} |")
+    if len(lines) == 4:
+        lines.append("| all | - | - | under one turn of yield | - | no |")
+    return lines + [""], failed
+
+
 def production_by_world(qfile: Path, base: int = 0) -> list[str]:
     """Items started in production, per world age (the turn number restarts in each age),
     grouped by the item's native age. Shows whether a civ can still use earlier-age content."""
@@ -273,7 +381,10 @@ def legacy_unique_units() -> set:
     global _LEGACY_UNITS
     if _LEGACY_UNITS is None:
         _LEGACY_UNITS = set()
-        for w in ("AGE_EXPLORATION", "AGE_MODERN"):
+        # Antiquity too: a civ of a later age played from the start (Time-Tested) has the Antiquity Test of
+        # Time tree, and its Syncretism gives an Antiquity legacy civ (iteration 20261031-125020: Inca took
+        # Mississippian, and 4 Burning Arrows came back as Archers plus 4 new units at the load).
+        for w in ("AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"):
             sim = c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True)
             _LEGACY_UNITS |= {u.replace("UNIT_", "") for (u,) in sim.db.execute(
                 "SELECT UnitType FROM Units WHERE TraitType IN (SELECT TraitType FROM LegacyCivilizationTraits)")}
@@ -555,7 +666,11 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
             gm = (gate_mods[ti] if ti < len(gate_mods) else {}).get(pid)
             if gm is not None:
                 n, act = (gm.get("CA_GATE_") or [0, 0])
-                behind = {"AQ": 0, "EX": 1, "MO": 2}.get(b.get("civAge"), 0) < order.index(nxt)
+                # The civ's abilities wait for the gate of the civ's own age, not the world's: an Exploration civ
+                # kept into the Modern world (a Time-Tested start, iteration 20261031-121009: Mongolia, civ age
+                # EX) rightly has its Exploration abilities.
+                own = civ_ages().get("CIVILIZATION_" + civ_a) if civ_a else None
+                behind = {"AQ": 0, "EX": 1, "MO": 2}.get(b.get("civAge"), 0) < order.index(own if own in order else nxt)
                 if behind and act:
                     failed = True
                     lines.append(f"  - ABILITY LEAK FAIL: {act} of {n} later-age civ ability modifiers active before the civ's gate")
@@ -898,6 +1013,17 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
                   "| --- | --- | --- | --- | --- | --- | --- |"]
         for (w, ca), a in sorted(agg.items(), key=lambda x: (str(x[0][0]), x[0][1])):
             lines.append(f"| {w} | {ca} | {a[0]} | {a[1]} | {a[2]} | {a[3]} | {', '.join(sorted(a[4])[:10])} |")
+    probes = records("PROBE")
+    if probes:
+        lines += ["", f"## Probe {probes[0].get('probe')} (test modifiers; local player's capital each turn)", "",
+                  "| Turn | Modifier | Unit | From turn | Query | canStart | isBuildDisabled | isBuildPermanentlyDisabled |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for p in probes:
+            lines.append(f"| {p['turn']} | {p['modifier']} | {p['unit']} | {p['fromTurn']} | {json.dumps(p['query'])} | "
+                         f"{json.dumps(p['canStart'])} | {p['disabled']} | {p['permanentlyDisabled']} |")
+    bank_lines, bank_failed = bank_report(records("BANK"))
+    lines += [""] + bank_lines if bank_lines else []
+    failed |= bank_failed
     upgrades = records("UPGRADE")
     up_ok = {}
     for p in players:
@@ -963,6 +1089,9 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
             else:
                 lines.append("- none")
             lines.append("")
+        replace_lines, replace_failed = replace_starts(qfile, players)
+        lines += replace_lines
+        failed |= replace_failed
     lines += ["## Exploration items produced (first turn in production)", ""]
     lines += [f"- {k}: turn {v}" for k, v in sorted(first.items(), key=lambda x: x[1])] or ["- none"]
     lines += ["", "## Autoplay runner output", "", "```", autoplay_out.strip(), "```", ""]
@@ -983,6 +1112,7 @@ def main() -> int:
     ap.add_argument("--age-points", type=int, default=None, help="test setting: each world age ends at N age-progress points (default: the base game's age length)")
     ap.add_argument("--observe", choices=["OBSERVER", "NONE", "0"], default="OBSERVER",
                     help="NONE sees nothing, so the engine shows fewer moves (faster; you cannot watch)")
+    ap.add_argument("--probe", default=None, help="test build with the probe's test modifiers (build_mod.py PROBES); use --observe 0")
     args = ap.parse_args()
     fast = None if args.no_fast_test else args.fast_test
 
@@ -1005,7 +1135,7 @@ def main() -> int:
     head = run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"]).stdout.strip()
     dirty = bool(run(["git", "-C", str(REPO), "status", "--porcelain", "generator"]).stdout.strip())
     print("1/3 Build and validate ...")
-    ok, build_out = build(fast, args.age_points)
+    ok, build_out = build(fast, args.age_points, ["--probe", args.probe] if args.probe else None)
     (workdir / "build.txt").write_text(build_out, encoding="utf-8")
     if not ok:
         print("Build or validation failed:\n" + build_out[-2000:])

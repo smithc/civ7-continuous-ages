@@ -121,6 +121,12 @@ BASELINE = {
         "delta": {"TRAIT_MOD_GOLD_UNASSIGNED_RESOURCE": {"Amount": "1"},       # 1 -> 2
                   "TRAIT_MOD_HAPPINESS_UNASSIGNED_RESOURCE": {"Amount": "1"},  # 1 -> 2
                   "TRAIT_INITIAL_SETTLEMENT_CAP": None},                      # minimum 8
+        # Definitions of the mod's own (id: collection, effect). In the Antiquity world the engine does not let
+        # a civ meet the civs of the Distant Lands; the per-player effect that lifts it is used only by Tonga
+        # (DLC tonga, MOD_TONGA_MEET_DISTANT_LAND_CIVS), the one Antiquity civ that can cross deep ocean.
+        # A civ with ocean travel saw the cities of distant civs but never met them (a player report of
+        # 2026-10-30). The Exploration and Modern worlds let every civ meet them.
+        "new": {"CA_EX_MEET_DISTANT_LAND_CIVS": ("COLLECTION_OWNER", "EFFECT_PLAYER_CAN_MEET_DISTANT_LAND_CIVS")},
     },
     "AGE_MODERN": {
         "as_is": ["MOD_MODERN_OCEAN_TRAVEL", "MOD_MODERN_EMBARKATION", "MOD_TECH_MO_EMBARKATION",
@@ -393,6 +399,9 @@ class WorldBuild:
                         arg.text = overrides[arg.get("name")]
                 defs.append(copy)
                 granted.append(new_id)
+            for mid, (collection, effect) in spec.get("new", {}).items():
+                defs.append(ET.Element("{GameEffects}Modifier", {"id": mid, "collection": collection, "effect": effect}))
+                granted.append(mid)
             lines += [f"-- {NAME[age]} baseline at the civ's {NAME[age]} Breakthrough (hidden unlocks)."]
             lines += [f"INSERT INTO ProgressionTreeNodeUnlocks (ProgressionTreeNodeType, TargetKind, TargetType, UnlockDepth, Hidden) "
                       f"VALUES ('{gate}', 'KIND_MODIFIER', '{m}', 1, 1);" for m in granted]
@@ -458,6 +467,15 @@ class WorldBuild:
                           f"SELECT DISTINCT '{GATES[age]}', u.TargetKind, u.TargetType, 1 FROM ProgressionTreeNodeUnlocks u "
                           "JOIN ProgressionTreeNodes n ON n.ProgressionTreeNodeType = u.ProgressionTreeNodeType "
                           f"WHERE n.ProgressionTree IN ({trees}) AND u.TargetKind IN ('KIND_UNIT', 'KIND_CONSTRUCTIBLE');"]
+        # A UnitReplaces row blocks the base unit even while rule 2d locks the unique unit, so the civ had
+        # neither (replace_gaps). The row goes; a modifier on the civ's trait disables the base unit at the gate.
+        lines += ["", "-- 2i. A unique unit that waits for its Breakthrough does not block the base unit it replaces",
+                  "--     until then (the base unit is of an earlier age). At the gate the base unit is disabled",
+                  "--     for the civ (modifier CA_REPLACE_<unique unit> on its trait), as the replacement did."]
+        for uu, base, trait, _age in self.replace_gaps:
+            lines += [f"DELETE FROM UnitReplaces WHERE CivUniqueUnitType = '{uu}' AND ReplacesUnitType = '{base}';",
+                      f"INSERT OR IGNORE INTO TraitModifiers (TraitType, ModifierId) SELECT '{trait}', 'CA_REPLACE_{uu}' "
+                      f"WHERE EXISTS (SELECT 1 FROM Units WHERE UnitType = '{uu}') AND EXISTS (SELECT 1 FROM Traits WHERE TraitType = '{trait}');"]
         # (Removed: rule 2h, which locked each later-age civ behind its age's Breakthrough so that a civ
         # behind its gate would keep its civ. The AI then took a locked civ or a civ of another age
         # (Persia -> Nepal, a Modern civ, in the Exploration world; iterations 20261025-040432, 043636).)
@@ -483,6 +501,7 @@ class WorldBuild:
                       f"UPDATE AgeProgressions SET MaxPoints_Abbreviated = {points}, MaxPoints_Standard = {points}, "
                       f"MaxPoints_Long = {points} WHERE AgeType = '{self.world}';", ""]
         baseline_lines, defs, baseline_report = self.baseline_adapter()
+        defs += replace_gap_modifiers(self.replace_gaps)  # rule 2i
         lines += ["-- 5. Baseline adapters."] + baseline_lines + [""]
         # The Exploration civ trait's free Cog came at the world transition to civs still in Antiquity,
         # and a second time to civs that got it at their gate (iteration 20261024-224137). One source:
@@ -562,6 +581,33 @@ class WorldBuild:
                         cols = ", ".join(row.attrib)
                         vals = ", ".join("1" if v == "true" else "0" if v == "false" else f"'{v}'" for v in row.attrib.values())
                         lines.append(f"INSERT OR IGNORE INTO UnitMovementClassObstacles ({cols}) VALUES ({vals});")
+            # Deep-ocean damage: the amount is a world value (GlobalParameters) that only the Exploration data
+            # sets, so in the Antiquity world nothing took damage and Shipbuilding protected against nothing (a
+            # player report of 2026-10-30; RandCalls.csv: 0 "Ocean Damage" rolls in every Antiquity world). Only
+            # units on deep ocean roll, and in the Antiquity world only civs past their gate can be there. A civ
+            # behind its gate keeps the base game's Antiquity: full protection (Tonga's Tehina may enter deep
+            # ocean in Antiquity). Shipbuilding (in the joined tree) protects the others, as in Exploration.
+            lines += ["", "-- 6b. Exploration deep-ocean damage for civs past their gate (until Shipbuilding).",
+                      "--     Civs behind the gate are fully protected (CA_AQ_WATER_PROTECTION_BEFORE_GATE)."]
+            src = self.game / "Base" / "modules" / "age-exploration" / "data" / "gameplay-systems.xml"
+            water = {}
+            for tbl in ET.parse(src).getroot():
+                if c.strip_ns(tbl.tag) == "GlobalParameters":
+                    for row in tbl:
+                        if (row.get("name") or "").startswith("PLOT_WATER_DAMAGE_"):
+                            water[row.get("name")] = row.get("value")
+            if set(water) != {"PLOT_WATER_DAMAGE_BASE", "PLOT_WATER_DAMAGE_RAND"}:
+                raise SystemExit(f"Exploration water damage parameters not found as expected: {water} (game patch?)")
+            lines += [f"INSERT OR REPLACE INTO GlobalParameters (Name, Value) VALUES ('{k}', '{v}');" for k, v in sorted(water.items())]
+            m = ET.Element("{GameEffects}Modifier", {"id": "CA_AQ_WATER_PROTECTION_BEFORE_GATE", "collection": "COLLECTION_PLAYER_UNITS",
+                                                    "effect": "EFFECT_ADJUST_UNIT_WATER_DAMAGE_PROTECTION"})
+            reqs = ET.SubElement(m, "{GameEffects}OwnerRequirements")
+            r = ET.SubElement(reqs, "{GameEffects}Requirement", {"type": "REQUIREMENT_PLAYER_HAS_COMPLETED_PROGRESSION_TREE_NODE", "inverse": "true"})
+            ET.SubElement(r, "{GameEffects}Argument", {"name": "ProgressionTreeNodeType"}).text = GATES["AGE_EXPLORATION"]
+            ET.SubElement(r, "{GameEffects}Argument", {"name": "MinDepth"}).text = "1"
+            ET.SubElement(m, "{GameEffects}Argument", {"name": "WaterDamage"}).text = "100"
+            defs.append(m)
+            lines.append("INSERT INTO TraitModifiers (TraitType, ModifierId) VALUES ('TRAIT_LEADER_MAJOR_CIV', 'CA_AQ_WATER_PROTECTION_BEFORE_GATE');")
             lines.append("")
         if args.fast_test is not None:
             # Civics too, so a short run reaches the civic gates (with techs only, no civ finished the
@@ -1085,6 +1131,99 @@ def civ_age_content(sims: dict) -> dict:
     return out
 
 
+def replace_gaps(sims: dict, civ_content: dict) -> list[tuple[str, str, str, str]]:
+    """(unique unit, base unit, trait, age) for each UnitReplaces row that rule 2d turns into a gap: the
+    unique unit waits for its age's Breakthrough tech, but the base unit it replaces is in the data of an
+    earlier age, so the base game gives it before that Breakthrough. A UnitReplaces row blocks the base
+    unit for the civ at all times (the table has no condition), so the civ had neither unit: Mughal had no
+    Settler in Antiquity (Zamindar; a player report of 2026-10-30), Mongolia no Army Commander before its
+    Breakthrough (Noyan; 34 runs). Rows where the base unit is of the unique unit's age are not gaps.
+    sims: the base game with DLC (no mod) per age."""
+    first_age = {}
+    for age in AGES:
+        for (unit,) in sims[age].db.execute("SELECT UnitType FROM Units"):
+            first_age.setdefault(unit, age)
+    out = []
+    for age in GATES:
+        gated = set(civ_content[age]["items"]["KIND_UNIT"])
+        for uu, base, trait in sims[age].db.execute(
+                "SELECT r.CivUniqueUnitType, r.ReplacesUnitType, u.TraitType FROM UnitReplaces r "
+                "JOIN Units u ON u.UnitType = r.CivUniqueUnitType ORDER BY r.CivUniqueUnitType"):
+            if uu in gated and trait and later(age, first_age.get(base, age)):
+                out.append((uu, base, trait, age))
+    return sorted(set(out))
+
+
+def replace_gap_modifiers(gaps) -> list[ET.Element]:
+    """Rule 2i: one modifier per gap (CA_REPLACE_<unique unit>), on the unique unit's trait. It disables
+    the base unit once the civ has the Breakthrough tech of the unique unit's age, so after the gate the
+    civ trains only the unique unit, as the UnitReplaces row did in the base game (the pattern of the base
+    game's MOD_PLAYER_RESPAWN_BLOCK_SETTLERS and the Sengoku DLC's MOD_CIV_SENGOKU_NO_MAN).
+    Dynamic, without PermanentlyDisabled: with that argument a non-permanent modifier disabled nothing (Ming
+    trained Merchants after its gate, iteration 20261031-121009; live probe scenarios/probe_disable_gate.js:
+    isBuildDisabled stayed false), while the dynamic form disabled the unit in the turn the gate was granted.
+    The dynamic form also ends with the trait: a civ that takes a new civ gets the base unit back."""
+    g = "{GameEffects}"
+    out = []
+    for uu, base, _trait, age in gaps:
+        m = ET.Element(f"{g}Modifier", {"id": f"CA_REPLACE_{uu}", "collection": "COLLECTION_OWNER",
+                                        "effect": "EFFECT_PLAYER_DISABLE_BUILD_UNIT"})
+        reqs = ET.SubElement(m, f"{g}OwnerRequirements")
+        r = ET.SubElement(reqs, f"{g}Requirement", {"type": "REQUIREMENT_PLAYER_HAS_COMPLETED_PROGRESSION_TREE_NODE"})
+        ET.SubElement(r, f"{g}Argument", {"name": "ProgressionTreeNodeType"}).text = GATES[age]
+        ET.SubElement(r, f"{g}Argument", {"name": "MinDepth"}).text = "1"
+        ET.SubElement(m, f"{g}Argument", {"name": "UnitType"}).text = base
+        out.append(m)
+    return out
+
+
+# Probes (build_mod.py --probe NAME, test builds only): test modifiers that answer one engine question in a
+# short observed run. ca-checks.js logs the engine's answer for the local player's capital each turn
+# ([CA-CHECK][PROBE]). Each entry: (modifier id, attributes, unit argument, extra arguments, MinGameTurn).
+PROBES = {
+    # Which form of EFFECT_PLAYER_DISABLE_BUILD_UNIT works with a requirement (rule 2i)? In iteration
+    # 20261031-121009 a non-permanent one with PermanentlyDisabled=true did not stop Merchants after the gate.
+    # The base game's working uses are permanent (Sengoku, a civic unlock) and permanent run-once with
+    # PermanentlyDisabled (Pirate Republic, a trait); the one with requirements and no permanent is commented out.
+    "disable": [
+        ("CA_PROBE_DYNAMIC", {}, "UNIT_SCOUT", {}, 3),
+        ("CA_PROBE_PERMANENT", {"permanent": "true"}, "UNIT_WARRIOR", {}, 3),
+        ("CA_PROBE_PERMANENT_RUNONCE_PD", {"permanent": "true", "run-once": "true"}, "UNIT_SETTLER", {"PermanentlyDisabled": "true"}, 3),
+    ],
+    # The same forms with rule 2i's requirement: the Exploration Breakthrough tech completed (scenario
+    # scenarios/probe_disable_gate.js grants it with the debug operation GRANT_TREE_NODE).
+    "disable_gate": [
+        ("CA_PROBE_GATE_DYNAMIC", {}, "UNIT_SCOUT", {}, "NODE_TECH_CA_EXPLORATION_BREAKTHROUGH"),
+        ("CA_PROBE_GATE_DYNAMIC_PD", {}, "UNIT_WARRIOR", {"PermanentlyDisabled": "true"}, "NODE_TECH_CA_EXPLORATION_BREAKTHROUGH"),
+        ("CA_PROBE_GATE_PERMANENT_RUNONCE_PD", {"permanent": "true", "run-once": "true"}, "UNIT_SETTLER", {"PermanentlyDisabled": "true"},
+         "NODE_TECH_CA_EXPLORATION_BREAKTHROUGH"),
+    ],
+}
+
+
+def probe_modifiers(name: str) -> tuple[list[ET.Element], list[str], list[str]]:
+    """Definitions, SQL (attached to every major civ) and the probed units of probe `name`."""
+    g = "{GameEffects}"
+    defs, sql, units = [], [], []
+    for mid, attrs, unit, extra, turn in PROBES[name]:
+        m = ET.Element(f"{g}Modifier", {"id": mid, "collection": "COLLECTION_OWNER", "effect": "EFFECT_PLAYER_DISABLE_BUILD_UNIT", **attrs})
+        reqs = ET.SubElement(m, f"{g}OwnerRequirements")
+        if isinstance(turn, int):  # from that game turn
+            r = ET.SubElement(reqs, f"{g}Requirement", {"type": "REQUIREMENT_GAME_TURN_ATLEAST"})
+            ET.SubElement(r, f"{g}Argument", {"name": "MinGameTurn"}).text = str(turn)
+        else:  # once the player has completed that node
+            r = ET.SubElement(reqs, f"{g}Requirement", {"type": "REQUIREMENT_PLAYER_HAS_COMPLETED_PROGRESSION_TREE_NODE"})
+            ET.SubElement(r, f"{g}Argument", {"name": "ProgressionTreeNodeType"}).text = turn
+            ET.SubElement(r, f"{g}Argument", {"name": "MinDepth"}).text = "1"
+        ET.SubElement(m, f"{g}Argument", {"name": "UnitType"}).text = unit
+        for k, v in extra.items():
+            ET.SubElement(m, f"{g}Argument", {"name": k}).text = v
+        defs.append(m)
+        sql.append(f"INSERT INTO TraitModifiers (TraitType, ModifierId) VALUES ('TRAIT_LEADER_MAJOR_CIV', '{mid}');")
+        units.append({"id": mid, "unit": unit, "fromTurn": turn})
+    return defs, sql, units
+
+
 def fk_set(sim):
     return {(t, p, tuple(sorted(v.items()))) for t, p, v in sim.foreign_key_violations()}
 
@@ -1137,10 +1276,14 @@ def main() -> None:
                     help="each world age ends at N age-progress points (test setting)")
     ap.add_argument("--package", action="store_true",
                     help="release build: write build-info.json and zip the mod to build/dist (refused with test settings)")
+    ap.add_argument("--probe", choices=sorted(PROBES), default=None,
+                    help="test build: add the test modifiers of a probe (needs --checks; see PROBES)")
     args = ap.parse_args()
     game = args.game_dir
-    if args.package and (args.checks or args.fast_test is not None or args.age_points):
-        ap.error("--package makes a release build: leave out --checks, --fast-test and --age-points")
+    if args.package and (args.checks or args.fast_test is not None or args.age_points or args.probe):
+        ap.error("--package makes a release build: leave out --checks, --fast-test, --age-points and --probe")
+    if args.probe and not args.checks:
+        ap.error("--probe needs --checks (the check script logs the probe's answers)")
 
     OUT.mkdir(parents=True, exist_ok=True)
     for child in OUT.iterdir():
@@ -1152,6 +1295,8 @@ def main() -> None:
     starters = age_starter_items({b.world: b.sim for b in builds})
     dlc_sims = {a: c.simulate(game, a, include_dlc=True) for a in AGES}
     civ_content = civ_age_content({a: dlc_sims[a] for a in GATES})
+    gaps = replace_gaps(dlc_sims, civ_content)
+    print(f"unique units that no longer block their base unit before the gate (rule 2i): {[f'{u}>{b}' for u, b, _, _ in gaps]}")
     pol_unlocks = policy_unlocks(dlc_sims)
     abil_defs, abil_sql, abil_skipped = civ_ability_modifiers(game, dlc_sims)
     print(f"civ abilities gated: {len(abil_defs)} modifiers, {len(abil_sql)} trait rows; left out: {abil_skipped}")
@@ -1159,6 +1304,7 @@ def main() -> None:
     for b in builds:
         b.starters = starters
         b.civ_content = civ_content
+        b.replace_gaps = gaps
         b.policy_unlocks = pol_unlocks
         b.civ_abilities = (abil_defs, abil_sql)
         b.cross_upgrades = upgrades
@@ -1167,6 +1313,10 @@ def main() -> None:
         b.copy_content(groups)
         b.copy_text(groups, all_mods)
         sql, defs = b.rules()
+        if args.probe:
+            probe_defs, probe_sql, probe_units = probe_modifiers(args.probe)
+            defs += probe_defs
+            sql += f"\n-- PROBE {args.probe} (test build only).\n" + "\n".join(probe_sql) + "\n"
         (OUT / "data" / b.w).mkdir(parents=True, exist_ok=True)
         (OUT / "data" / b.w / "continuous-ages-rules.sql").write_text(sql, encoding="utf-8")
         catchup_defs, catchup_sql, b.catchup_nodes = b.catchup(set(b.info["tech"]["removed_repeatable"])
@@ -1190,6 +1340,19 @@ def main() -> None:
     if args.checks:
         for f in ("ca-checks.js", "ca-automation.js", "ca-ui-test.js"):
             shutil.copyfile(Path(__file__).parent / "checks" / f, OUT / "ui" / f)
+        # The check of rule 2i needs the gap pairs (the rows are gone from the game's UnitReplaces).
+        checks_js = OUT / "ui" / "ca-checks.js"
+        marker = "const CA_REPLACE_GAPS = []; // CA_REPLACE_GAPS (filled by build_mod.py)"
+        text = checks_js.read_text(encoding="utf-8")
+        if marker not in text:
+            raise SystemExit("ca-checks.js: the CA_REPLACE_GAPS line is missing")
+        text = text.replace(marker, f"const CA_REPLACE_GAPS = {json.dumps([list(g) for g in gaps])};")
+        probe_marker = "const CA_PROBE = null; // CA_PROBE (filled by build_mod.py --probe)"
+        if probe_marker not in text:
+            raise SystemExit("ca-checks.js: the CA_PROBE line is missing")
+        if args.probe:
+            text = text.replace(probe_marker, f"const CA_PROBE = {json.dumps({'name': args.probe, 'items': probe_modifiers(args.probe)[2]})};")
+        checks_js.write_text(text, encoding="utf-8")
     (OUT / f"{MOD_ID}.modinfo").write_text(modinfo_xml(builds, args.checks, args.fast_test, game), encoding="utf-8")
 
     # Validate each world age: base modules + DLC + the mod, in load order.

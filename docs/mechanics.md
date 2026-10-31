@@ -152,6 +152,15 @@ Breakthrough. This applies even after the world has moved on:
 - "starter" units and buildings that a later age gives at its start;
 - civ-specific content (see [Civs and ages](civs-and-ages.md)).
 
+A lock never takes away what the base game gives. A unique unit of a later age that replaces a base
+unit of an earlier age (for example Mughal's Zamindar, which replaces the Settler) does not block the
+base unit before the civ's Breakthrough: the civ trains the Settler. After the Breakthrough the civ
+trains the Zamindar and not the Settler, as in the base game. Up to version 0.3.0 such a civ could
+train neither (a player report: Mughal had no Settlers in Antiquity). The rule covers 14 pairs: the
+Settler (Norman, Dai Viet, Mughal), the Merchant (Ming, Songhai, England, Qing), the Army Commander
+(Mongolia, Bulgaria, Buganda, Joseon, Qajar) and the Scout (Inca, Nepal). The generator finds the
+pairs in the game data.
+
 ## Buildings across ages
 
 - The game offers only buildings of the current world age (and ageless ones). The mod sets each
@@ -181,6 +190,19 @@ An upgrade needs the civ to be able to build the target unit, so the age gates a
   (ocean travel, embarking, deep-ocean trade, and the Exploration age-balance rules).
 - The Exploration rule that deep ocean ends a unit's turn until Shipbuilding is loaded, so
   Shipbuilding keeps its meaning for a leading civ.
+- **Deep-ocean damage.** In the Antiquity world, a unit on deep ocean takes the Exploration damage (11
+  to 20 each turn) until its civ has Shipbuilding, as in the Exploration world. The amount is a world
+  value that only the Exploration data sets, so up to version 0.3.0 nothing took damage in the
+  Antiquity world (a player report). Only civs past their gate can reach deep ocean there. A civ behind
+  its gate is fully protected, as in the base game's Antiquity (Tonga's Tehina may enter deep ocean in
+  Antiquity). The Modern world has no deep-ocean damage, as in the base game.
+- **Meeting the civs of the Distant Lands.** In the Antiquity world the game does not let a civ meet
+  the civs of the other hemisphere. The base game lifts this only for Tonga. A civ past its
+  Exploration Breakthrough can meet them, because its ships can reach them. Up to version 0.3.0 such a
+  civ saw their cities but never met them (a player report). Only one of the two civs needs the
+  Breakthrough.
+- Proof: the scenario tests `scenarios/ocean_damage.js` and `scenarios/meet_distant.js` (see
+  [Testing](testing.md)). AI civs almost never sail deep ocean in Antiquity, so autoplay runs cannot show it.
 - The Exploration civs' free ship comes once per civ, at the later of its Exploration Breakthrough
   and the Exploration world.
 
@@ -197,6 +219,9 @@ These systems stay with the world age and start at the world transition, as in t
 - the age's growth curve and balance values.
 
 A leading civ therefore cannot score the next age's legacy paths before the world reaches that age.
+Two Exploration rules are not world systems, because they follow from ocean travel, which a civ gets at
+its own Breakthrough: deep-ocean damage and meeting the civs of the Distant Lands (see
+[Ocean travel](#ocean-travel)).
 
 ## The civ age banner
 

@@ -1,0 +1,7 @@
+{
+	"Scripts": [
+		"fs://game/base-standard/ui/automation/automation-test-support.js",
+		"fs://game/continuous-ages/ui/ca-automation.js"
+	],
+	"Tests": ["Tests=( { Test=CAPlayAges, Turns=60, ObserveAs=NONE, StartAge=AGE_ANTIQUITY, MapSeed=2468, GameSeed=2468, QuickMovement=1, QuickCombat=1, Player0Civ=CIVILIZATION_MUGHAL, Player1Civ=CIVILIZATION_NORMAN, Player2Civ=CIVILIZATION_MONGOLIA, Player3Civ=CIVILIZATION_QING, Player4Civ=CIVILIZATION_INCA, Player5Civ=CIVILIZATION_MING }, { Test=QuitApp } )"]
+}

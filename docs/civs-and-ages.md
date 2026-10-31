@@ -55,7 +55,14 @@ transition. The mod then locks the new civ's content until the civ's own Breakth
   civic Breakthrough of that age).
 
 What the civ gets at once is the new civ's **name**, and the game converts some kept units to the new
-civ's unique versions (for example Army Commander to Soltan). This is called the "half swap".
+civ's unique versions. This is called the "half swap".
+
+A unique unit that waits for the Breakthrough does not block the base unit of an earlier age that it
+replaces. For example, a civ that takes Mongolia behind its gate still trains Army Commanders until it
+researches the Exploration Breakthrough; then it trains the Noyan instead (see
+[Mechanics](mechanics.md#content-locked-by-civ-age)). For these units the game also no longer converts
+kept units to the unique version. Up to version 0.3.0 such a civ could train neither unit: in 34 test
+games, Greece took Mongolia behind its gate and had no Army Commander until its Breakthrough.
 
 ### Keeping your civ (Test of Time)
 
@@ -108,8 +115,10 @@ A civ's unique content belongs to the civ's age:
 - In the Modern world, units and buildings of Exploration civ trees also need the Exploration
   Breakthrough (the game does not enforce unlocks of an older tree on its own).
 
-A civ that starts the game as a civ of a later age (Test of Time at game setup) does not get that
-civ's unique content in Antiquity. This matches the base game.
+A civ that starts the game as a civ of a later age (Time-Tested civ selection at game setup, the
+game's default) does not get that civ's unique content in Antiquity. This matches the base game. It
+trains the base units that its unique units replace (Mughal: the Settler until the Modern
+Breakthrough, then the Zamindar). Up to version 0.3.0 it could not (a player report).
 
 ## Age by age
 
@@ -117,8 +126,9 @@ civ's unique content in Antiquity. This matches the base game.
 
 - Every civ starts in Antiquity.
 - A civ that researches the Exploration Breakthrough gets Exploration techs, units and buildings,
-  and ocean travel. The deep-ocean rule (ends the turn until Shipbuilding) applies. A civ that
-  researches the Exploration civic Breakthrough gets the Exploration civics.
+  and ocean travel. The deep-ocean rules apply until Shipbuilding: deep ocean ends the turn, and units
+  there take damage. The civ can meet the civs of the Distant Lands. A civ that researches the
+  Exploration civic Breakthrough gets the Exploration civics.
 - Exploration world systems (treasure fleets, the Distant Lands, Exploration legacy paths) do not
   start. Antiquity legacy paths and crises run as in the base game.
 - A civ can even research the Modern Breakthrough in the Antiquity world, if it gets that far.

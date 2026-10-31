@@ -2,7 +2,7 @@
 // starts the age transition and keeps playing, instead of ending the test.
 // Loaded by the autoplay suite (autoplay/ContinuousAgesTransition.json) from the mod folder.
 import { AutomationBasePlayGame } from '../../base-standard/ui/automation/automation-base-play-game.js';
-import { Shared_OnAutomationEvent } from '../../base-standard/ui/automation/automation-test-support.js';
+import { Shared_OnAutomationEvent, PassTest, FailTest, LogCurrentPlayers } from '../../base-standard/ui/automation/automation-test-support.js';
 
 // Civic trees the player has (a tree a player does not have shows its nodes as not unlocked),
 // and the traditions and policies unlocked (the effect of civics, kept across ages in the base game).
@@ -198,4 +198,106 @@ class AutomationTestCAPlayAges extends AutomationBasePlayGame {
 
 const handler = new AutomationTestCAPlayAges();
 handler.register();
+
+// Continuous Ages automation test "CALive": a live game for scripted tests (generator/live.py). It sets up
+// and hosts the game as CAPlayAges does (suite parameters: Player<i>Civ, HumanPlayers=1, seeds, map), but it
+// does not start autoplay: slot 0 stays human and a script drives it through the UI debugger (port 9444).
+// The helpers below exist only in test builds (this file ships only with build_mod.py --checks).
+const scenarioLog = (record) => console.warn(`[CA-CHECK][SCENARIO] ${JSON.stringify(record)}`);
+function onceEvent(name, test = () => true, timeoutMs = 600000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { engine.off(name, listener); reject(new Error(`timed out waiting for ${name}`)); }, timeoutMs);
+    const listener = (data) => {
+      if (!test(data)) return;
+      clearTimeout(timer);
+      engine.off(name, listener);
+      resolve(data);
+    };
+    engine.on(name, listener);
+  });
+}
+const localId = () => GameContext.localPlayerID;
+const capitalOf = (pid) => (Players.get(pid)?.Cities?.getCityIds() ?? []).find((id) => Cities.get(id)?.isCapital);
+globalThis.caLive = {
+  ready: false,
+  log: scenarioLog,
+  hasNode: (type, pid = localId()) => hasNode(pid, type),
+  // The AI plays slot 0 for about n turns (Autoplay), then gives it back. Autoplay's turn count is not exact
+  // (live test: 1 turn from turn 1 played none, 2 from turn 1 reached turn 3, and the turn can move once more
+  // after it ends), so this resolves when slot 0's turn is active and the turn has stayed the same for 2 s.
+  async advance(n = 1) {
+    const done = onceEvent("AutoplayEnded");
+    Autoplay.setTurns(n);
+    Autoplay.setReturnAsPlayer(0);
+    Autoplay.setObserveAsPlayer(0);
+    Autoplay.setActive(true);
+    await done;
+    let turn = -1;
+    for (let i = 0; i < 120; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const active = Players.get(localId())?.isTurnActive && !Autoplay.isActive;
+      if (active && Game.turn === turn) break;
+      turn = active ? Game.turn : -1;
+    }
+    return Game.turn;
+  },
+  // Ends slot 0's turn without the AI (blockers such as research or idle units may refuse it).
+  async endTurn() {
+    const turn = Game.turn;
+    const begun = onceEvent("LocalPlayerTurnBegin", () => Game.turn > turn);
+    GameContext.sendTurnComplete();
+    await begun;
+    return Game.turn;
+  },
+  // The engine's answers for training a unit in slot 0's capital (the UI's queries are reliable for slot 0).
+  canTrain(unitType, pid = localId()) {
+    const city = capitalOf(pid);
+    const def = GameInfo.Units.lookup(unitType);
+    if (city === undefined || !def) return { city: city !== undefined, unit: !!def };
+    const r = Game.CityOperations.canStart(city, CityOperationTypes.BUILD, { UnitType: def.$hash }, false);
+    const q = (Game.CityOperations.canStartQuery(city, CityOperationTypes.BUILD, CityQueryType.Unit) ?? []).find((x) => x.index === def.$index)?.result;
+    return { ok: !!r?.Success, reasons: r?.FailureReasons ?? [], listed: !!q, queryOk: !!q?.Success, neededUnlock: q?.NeededUnlock,
+             buildUnit: GameInfo.Units.lookup(Players.get(pid)?.Units?.getBuildUnit(unitType))?.UnitType ?? null };
+  },
+  // Debug operations (the game's tuner panels use them); canStart first, so a refusal shows its reasons.
+  grantNode(type, pid = localId(), fullyUnlock = 0) {
+    const args = { ProgressionTreeNodeType: GameInfo.ProgressionTreeNodes.lookup(type)?.$hash, FullyUnlock: fullyUnlock };
+    const can = Game.PlayerOperations.canStart(pid, PlayerOperationTypes.GRANT_TREE_NODE, args, false);
+    if (can?.Success) Game.PlayerOperations.sendRequest(pid, PlayerOperationTypes.GRANT_TREE_NODE, args);
+    return { sent: !!can?.Success, reasons: can?.FailureReasons ?? [] };
+  },
+  createUnit(type, x, y, pid = localId()) {
+    const args = { Kind: "UNIT", Type: type, Location: { x, y }, Owner: pid };
+    const can = Game.PlayerOperations.canStart(pid, "CREATE_ELEMENT", args, false);
+    Game.PlayerOperations.sendRequest(pid, "CREATE_ELEMENT", args);
+    return { canStart: !!can?.Success, reasons: can?.FailureReasons ?? [] };
+  },
+  // Ends the test: the suite's next test (QuitApp) closes the game.
+  finish(ok = true, message = "") {
+    scenarioLog({ finish: ok, message });
+    if (ok) PassTest(message); else FailTest(message);
+    return ok;
+  },
+};
+
+class AutomationTestCALive extends AutomationTestCAPlayAges {
+  listener = (command, ...args) => {
+    this.onAutomationEvent(command, args);
+  };
+  register() {
+    engine.on("Automation-Test-CALive", this.listener);
+  }
+  postGameInitialization() {
+    LogCurrentPlayers();
+  }
+  gameStarted() {
+    Automation.log("CALive: game started; slot 0 is left to the script");
+    globalThis.caLive.ready = true;
+    scenarioLog({ ready: true, turn: Game.turn, localPlayer: GameContext.localPlayerID });
+  }
+  stop() {
+    super.stop();
+  }
+}
+new AutomationTestCALive().register();
 Automation.setScriptHasLoaded("ca-automation");

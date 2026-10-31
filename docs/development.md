@@ -32,6 +32,8 @@ your game is somewhere else.
 | `generator/ui/ca-tree-layout.js` | Tree screen columns from the prereqs inside each tree (the Breakthrough prereq of each age's first civics is in the tech tree; without this the civic tree has empty columns). It also repairs lines over more than one column: the game's `tree-grid.js` links them wrongly when a node has two of them, and its `tree-line.js` draws the last piece at the wrong height when the line's last dummy is a little below the target card (stray lines). The hover highlight skips the tech nodes in the path to a later-age civic (the game's code stops at the first one). |
 | `generator/checks/` | In-game check scripts and the autoplay test (built in only with `--checks`). |
 | `generator/iterate.py` | Build, install, autoplay and analysis in one step. |
+| `generator/live.py` | Live tests: starts a game for a script, runs JavaScript in the game through the UI debugger (port 9444), runs scenario files and writes `build/scenarios/<time>/REPORT.md` (see [Testing](testing.md#live-tests)). |
+| `generator/scenarios/` | Scenario tests for `live.py` (`scenarios.json` lists them) and probe scenarios. |
 | `generator/ui_test.py` | UI test in the game: loads a save, runs `checks/ca-ui-test.js`, takes screenshots and checks the civic tree lines and hover highlight (see [UI test](#ui-test)). |
 | `generator/run_autoplay.ps1` | Starts the game with an autoplay suite and waits for it to end. |
 | `generator/autoplay/` | Autoplay suites. |
@@ -93,7 +95,13 @@ automation, and writes `build/iterations/<time>/REPORT.md` with the logs and a c
 | Catch-up Research at +100% or +50% (to the Exploration transition) | `python iterate.py --suite ContinuousAgesTransitionCatchUp.json --no-fast-test --turns 200 --observe NONE --timeout 60` (or `...CatchUp50.json`) | about 8 min |
 | One human slot (autoplay plays it) | `--suite ContinuousAgesTransitionHuman.json --observe 0` | about 15 min |
 | Earth map | `--suite ContinuousAgesEarth.json` | varies |
+| Time-Tested civs from the start (Mughal, Norman, Mongolia, Qing, Inca, Ming): unique units and their base units (rule 2i) | `python iterate.py --suite ContinuousAgesTimeTested.json --fast-test 0.4 --turns 700 --observe NONE --timeout 150` | about 15 min |
 | Civic tree screen (not an autoplay) | `python ui_test.py --save CA_AQ135` (see [UI test](#ui-test)) | about 2 min |
+| All scenario tests (not an autoplay; needs `build_mod.py --install --checks`) | `python live.py all` (see [Testing](testing.md#scenario-tests)) | about 1 to 2 min each |
+| One scenario, or a live game to drive by hand | `python live.py scenario scenarios/meet_distant.js`, or `live.py start`, `wait`, `eval`, `quit` | about 1 min |
+| A probe: test modifiers that answer one engine question | `python build_mod.py --install --checks --probe disable_gate`, then a scenario | about 1 min |
+
+See [Testing](testing.md) for which kind of test proves what, and for the coverage of the design goals.
 
 The from-save suites load the saves `CA_AQ135` and `CA_EX135` from the game's `Saves/Single` folder.
 They are not in the repository; make them from your own game (a save at turn 135 of Antiquity and of
@@ -117,7 +125,11 @@ A run fails on:
   before its gate, or a later-age civic tree shown before its gate (unique tree: tech Breakthrough;
   Test of Time tree: civic Breakthrough). A node counts as done from depth 1; masteries are not needed;
 - a civ choice against the AI mode (for example an AI civ that switches with Persistence), a new civ
-  of another age, or a missing record.
+  of another age, or a missing record;
+- a base unit started after the civ's gate by a civ whose unique unit replaces it (rule 2i, from the
+  production log), or the engine still mapping the base unit to a locked unique unit (`REPLACE`);
+- hidden culture or science that grows at 3 checks in a row past 3 turns of yield (`BANK`: a tree with no
+  next node for the civ, as the civic tree of 0.2.1).
 
 Known engine limits are listed by name in the report (see [Known limits](known-limits.md)).
 

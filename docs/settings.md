@@ -97,8 +97,11 @@ map's own step removed rural districts. Other map scripts were not tested.
 ## Start age and civ selection at game start
 
 - The tests start in Antiquity. A game that starts in Exploration or Modern was not tested.
-- **Civ selection at game start** (Time-Tested or Apex only) works as in the base game. A civ of a
-  later age at the start does not get its unique content in Antiquity, as in the base game.
+- **Civ selection at game start** (Time-Tested or Apex only) works as in the base game. Time-Tested is
+  the default, and with it random AI civs can also come from other ages. A civ of a later age at the
+  start does not get its unique content in Antiquity, as in the base game, and it trains the base units
+  that its unique units replace (for example the Settler for Mughal) until its Breakthrough. Tested with
+  the suite `ContinuousAgesTimeTested.json` (Mughal, Norman, Mongolia, Qing, Inca and Ming from the start).
 
 ## Other settings
 

@@ -6,6 +6,8 @@
 //   [CA-CHECK][STATE] {"age","turn","id","civAge","gold","techs",...} values a transition could reset
 //   [CA-CHECK][BUILD] {"turn","id","ok","needUnlock","noPlot",...}   capital: can it build Exploration buildings?
 //   [CA-CHECK][CIVICGATE] {"turn","id","gates","control","open","stuck","leak"} later-age civics: may the civ research them?
+//   [CA-CHECK][REPLACE] {"turn","id","uu","base","gate","buildUnit",...} rule 2i: a locked unique unit does not block its base unit
+//   [CA-CHECK][BANK] {"turn","id","culture","science"} hidden yield that no node takes (a growing bank = a dead end in a tree)
 //   [CA-CHECK][FAIL] ...    a rule of the design was broken
 //   [CA-CHECK][ERROR] ...   the check itself failed
 
@@ -21,6 +23,15 @@ const OCEAN_TECH = "NODE_TECH_EX_SHIPBUILDING"; // removes the deep-ocean obstac
 
 let lastTurnChecked = -1;
 let firstCheckAfterLoad = false;
+
+// Rule 2i: [unique unit, base unit, trait, age] of each unique unit that waits for its Breakthrough but
+// replaces a base unit of an earlier age. build_mod.py --checks writes the list into this line.
+const CA_REPLACE_GAPS = []; // CA_REPLACE_GAPS (filled by build_mod.py)
+// A probe build (build_mod.py --probe NAME): {name, items: [{id, unit, fromTurn}]}. Each turn the local player's
+// capital answers for each probed unit ([CA-CHECK][PROBE]); observe the local player (iterate.py --observe 0),
+// since the UI's queries answer reliably only for the observed player.
+const CA_PROBE = null; // CA_PROBE (filled by build_mod.py --probe)
+globalThis.caReplaceGaps = CA_REPLACE_GAPS; // for live scenarios (scenarios/rule_2i.js)
 
 // Exploration constructibles, found by the Exploration tech or civic that unlocks them
 // (their Age column is set to the world age by the generator, so Age cannot tell).
@@ -78,11 +89,15 @@ function explorationBuildings(player) {
   return found;
 }
 
+// Units that the base game lets enter deep ocean in Antiquity: Tonga's Tehina (DLC tonga, the modifier
+// AGE_ANTIQUITY_MOD_OCEAN_TERRAIN_INVALID_NOT_TEHINA). They are not a leak of a civ behind its gate.
+const AQ_DEEP_OCEAN_UNITS = new Set(["UNIT_TEHINA"]);
 function oceanUnits(player, oceanIndex) {
   const units = [];
   for (const unitId of player.Units?.getUnitIds() ?? []) {
     const unit = Units.get(unitId);
     const loc = unit?.location;
+    if (AQ_DEEP_OCEAN_UNITS.has(GameInfo.Units.lookup(unit?.type)?.UnitType)) continue;
     if (loc && GameplayMap.getTerrainType(loc.x, loc.y) === oceanIndex) {
       units.push(GameInfo.Units.lookup(unit.type)?.UnitType ?? String(unit.type));
     }
@@ -571,6 +586,52 @@ function playerCheck(player, turn) {
   if (turn % GATE_CHECK_EVERY === 0) gateCheck(player, turn, civAge);
   if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) civicGateCheck(player, turn);
   if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) catchupCheck(player, turn);
+  if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) replaceCheck(player, turn);
+  if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) bankCheck(player, turn);
+}
+
+// Rule 2i: a locked unique unit must not block the base unit it replaces. For each gap pair whose trait the
+// civ has (civ or leader trait): the engine's mapping of the base unit (getBuildUnit; the unique unit means
+// the UnitReplaces row is still there: FAIL), and the capital's answer for both units (UI queries answer
+// reliably only for the observed player; the production log is the ground truth, see iterate.py).
+const REPLACE_GATE = { AGE_EXPLORATION: GATE, AGE_MODERN: MO_GATE };
+function playerTraits(player) {
+  const civ = GameInfo.Civilizations.lookup(player.civilizationType)?.CivilizationType;
+  const leader = GameInfo.Leaders.lookup(player.leaderType)?.LeaderType;
+  const out = new Set();
+  for (const r of GameInfo.CivilizationTraits) if (r.CivilizationType === civ) out.add(r.TraitType);
+  for (const r of GameInfo.LeaderTraits ?? []) if (r.LeaderType === leader) out.add(r.TraitType);
+  return out;
+}
+function replaceCheck(player, turn) {
+  if (CA_REPLACE_GAPS.length === 0) return;
+  const traits = playerTraits(player);
+  const mine = CA_REPLACE_GAPS.filter(([, , trait]) => traits.has(trait));
+  if (mine.length === 0) return;
+  const capitalId = (player.Cities?.getCityIds() ?? []).find((id) => Cities.get(id)?.isCapital);
+  const results = capitalId === undefined ? [] : safeCall(() => Game.CityOperations.canStartQuery(capitalId, CityOperationTypes.BUILD, CityQueryType.Unit)) ?? [];
+  const byIndex = new Map(Array.isArray(results) ? results.map(({ index, result }) => [index, result]) : []);
+  const verdict = (type) => {
+    const def = GameInfo.Units.lookup(type);
+    if (!def) return "absent";
+    const r = byIndex.get(def.$index);
+    if (!r) return "notListed";
+    if (r.Success) return "ok";
+    if (r.NeededUnlock !== undefined && r.NeededUnlock != -1) return "unlock";
+    return `other:${(r.FailureReasons ?? []).slice(0, 2).join("|")}`.slice(0, 80);
+  };
+  const typeName = (t) => (t == null ? null : GameInfo.Units.lookup(t)?.UnitType ?? `${t}`);
+  for (const [uu, base, trait, age] of mine) {
+    const gate = hasNode(player.id, REPLACE_GATE[age]);
+    const buildUnit = safeCall(() => typeName(player.Units?.getBuildUnit(base)));
+    const disabled = safeCall(() => player.Units?.isBuildDisabled?.(GameInfo.Units.lookup(base)?.$hash));
+    log("REPLACE", JSON.stringify({ age: GameInfo.Ages.lookup(Game.age)?.AgeType, turn, id: player.id, uu, base, trait, gate,
+      observed: player.id === GameContext.localObserverID || player.id === GameContext.localPlayerID,
+      buildUnit, disabled, baseQ: verdict(base), uuQ: verdict(uu) }));
+    if (buildUnit === uu) {
+      log("FAIL", `turn ${turn}: player ${player.id} (gate ${gate}): the engine still maps ${base} to ${uu} (rule 2i: the UnitReplaces row blocks the base unit)`);
+    }
+  }
 }
 
 // Catch-up Research (setup option CaCatchUp): for open nodes of each age (Breakthroughs included), the
@@ -609,6 +670,35 @@ function catchupCheck(player, turn) {
   for (const [group, nodes] of Object.entries(out.nodes)) log("CATCHUP", JSON.stringify({ ...out, nodes: { [group]: nodes } }));
 }
 
+// Hidden yield bank (design goal 6, a player report of 2026-10-30): the engine keeps culture or science
+// that no node can take (PlayerCulture m_xCultureOverflow; m_xScienceOverflow) and pays it out one node per
+// turn, and the tree then shows 0 turns. A tree with no next node for a civ (the 0.2.1 civic dead end) makes
+// it grow. Estimate from the open nodes of the joined main tree: getTurnsForNode is about
+// ceil((cost - progress - bank) / rate), so each node gives a range; a node at 0 turns gives a lower bound.
+function bankEstimate(player, sys) {
+  const lib = sys === "tech" ? player.Techs : player.Culture;
+  const tree = sys === "tech" ? "TREE_TECHS_AQ" : "TREE_CIVICS_AQ_MAIN";
+  const rate = player.Stats?.getNetYield(sys === "tech" ? YieldTypes.YIELD_SCIENCE : YieldTypes.YIELD_CULTURE) ?? 0;
+  if (!(rate > 0)) return { rate: Math.round(rate) };
+  let lo = 0, hi = null, open = 0, zero = 0;
+  for (const node of GameInfo.ProgressionTreeNodes) {
+    if (node.ProgressionTree !== tree || nodeDone(player.id, node.$hash)) continue;
+    const turns = safeCall(() => lib?.getTurnsForNode(node.$hash));
+    const cost = safeCall(() => lib?.getNodeCost(node.$hash));
+    if (typeof turns !== "number" || turns < 0 || typeof cost !== "number") continue;
+    const left = cost - (Game.ProgressionTrees.getNode(player.id, node.$hash)?.progress ?? 0);
+    open++;
+    if (turns === 0) { zero++; lo = Math.max(lo, left); continue; }
+    lo = Math.max(lo, left - turns * rate);
+    hi = Math.min(hi ?? Infinity, left - (turns - 1) * rate);
+  }
+  return { rate: Math.round(rate), lo: Math.round(Math.max(0, lo)), hi: hi === null ? null : Math.round(Math.max(0, hi)), open, zero };
+}
+function bankCheck(player, turn) {
+  log("BANK", JSON.stringify({ turn, age: GameInfo.Ages.lookup(Game.age)?.AgeType, id: player.id,
+    culture: bankEstimate(player, "civic"), science: bankEstimate(player, "tech") }));
+}
+
 // Civ abilities behind the gate (rule 5e): the game effects library lists modifiers. Its call shapes
 // are not documented, so the first call logs them (GEPROBE); GATEMODS counts the CA_GATE_ copies per
 // owner and how many are active, at the first check of each age and every 20 turns.
@@ -642,7 +732,7 @@ function gateModsCheck(turn) {
     const id = m?.id ?? m;
     const def = GE.getModifierDefinition(id);
     const name = String(def?.id ?? def?.ModifierId ?? def?.name ?? def?.type ?? "");
-    const kind = ["CA_GATE_", "CA_ATTACH_REGRANT_", "CA_REGRANT_", "CA_CATCHUP_"].find((k) => name.startsWith(k));
+    const kind = ["CA_GATE_", "CA_ATTACH_REGRANT_", "CA_REGRANT_", "CA_CATCHUP_", "CA_REPLACE_"].find((k) => name.startsWith(k));
     if (!kind) continue;
     const o = GE.getModifierOwner(id);
     const key = `${kind}${String(o?.owner ?? o?.id ?? o)}`;
@@ -654,8 +744,31 @@ function gateModsCheck(turn) {
 }
 let gateModsTurn = -1;
 
+let probeTurn = -1;
+function probeCheck(player) {
+  if (!CA_PROBE || player.id !== GameContext.localPlayerID || probeTurn === Game.turn) return;
+  probeTurn = Game.turn;
+  const capitalId = (player.Cities?.getCityIds() ?? []).find((id) => Cities.get(id)?.isCapital);
+  const results = capitalId === undefined ? [] : safeCall(() => Game.CityOperations.canStartQuery(capitalId, CityOperationTypes.BUILD, CityQueryType.Unit)) ?? [];
+  const byIndex = new Map(Array.isArray(results) ? results.map(({ index, result }) => [index, result]) : []);
+  for (const item of CA_PROBE.items) {
+    const def = GameInfo.Units.lookup(item.unit);
+    const r = def ? byIndex.get(def.$index) : undefined;
+    const direct = capitalId === undefined || !def ? null
+      : safeCall(() => Game.CityOperations.canStart(capitalId, CityOperationTypes.BUILD, { UnitType: def.$hash }, false));
+    log("PROBE", JSON.stringify({ probe: CA_PROBE.name, turn: Game.turn, id: player.id, modifier: item.id, unit: item.unit,
+      fromTurn: item.fromTurn, capital: capitalId !== undefined,
+      query: r ? { ok: !!r.Success, unlock: r.NeededUnlock, reasons: (r.FailureReasons ?? []).slice(0, 3) } : "notListed",
+      canStart: direct && typeof direct === "object" ? { ok: !!direct.Success, reasons: (direct.FailureReasons ?? []).slice(0, 3) } : direct,
+      disabled: safeCall(() => player.Units?.isBuildDisabled?.(def?.$hash)),
+      permanentlyDisabled: safeCall(() => player.Units?.isBuildPermanentlyDisabled?.(def?.$hash)) }));
+  }
+}
+
 engine.on("PlayerTurnActivated", (data) => {
   try {
+    const probed = Players.get(data?.player);
+    if (CA_PROBE && probed) probeCheck(probed);
     const turn = Game.turn;
     // Also check the first turn after a load (an age transition is a load): it shows what the
     // transition kept, before the new age's turns can change it.

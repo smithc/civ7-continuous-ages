@@ -46,6 +46,7 @@ lead and snowball.
 | [Settings](docs/settings.md) | How game setup options affect the mod: Age Transition Impact (Continuity or Regroup), AI civ selection, game speed, maps |
 | [Known limits](docs/known-limits.md) | Engine limits, what is not tested, open checks |
 | [Development](docs/development.md) | How the mod is generated, how to build it, and the automated tests |
+| [Testing](docs/testing.md) | Which test proves what, the live (scripted) tests, the coverage of the design goals, and how to keep the tests current |
 | [Releasing](docs/releasing.md) | How to make a release (zip and Steam Workshop), and which game versions each release supports |
 
 ## Install

@@ -15,7 +15,7 @@ reset of a civ's progress except where noted.
 
 | Name | What happens | Effect |
 | --- | --- | --- |
-| **Half swap** | A civ behind its Breakthrough can take a new civ at a world transition (the game's choice). It gets the new name, and the game converts some kept units to the new civ's unique versions. The new civ's unique civic tree, abilities and unique items without a base-game unlock wait for the civ's Breakthrough. | Mostly cosmetic. Avoid it by keeping your civ, or with the AI option Persistence ([Settings](settings.md)). |
+| **Half swap** | A civ behind its Breakthrough can take a new civ at a world transition (the game's choice). It gets the new name, and the game converts some kept units to the new civ's unique versions. The new civ's unique civic tree, abilities and unique items without a base-game unlock wait for the civ's Breakthrough. A unique unit that replaces a base unit of an earlier age (Settler, Merchant, Army Commander, Scout) no longer blocks that base unit before the Breakthrough; up to version 0.3.0 it did, and the civ had neither unit. | Mostly cosmetic. Avoid it by keeping your civ, or with the AI option Persistence ([Settings](settings.md)). |
 | **Prereq in another tree** | The game never opens a prerequisite in another tree: a civic that needs a tech, or a civic of one civic tree that needs a civic of another, stays locked for all time. The base game has no such prerequisite (a query of the base data with all DLC finds 0). A tree's reveal requirement (`RevealRequirementSetId`) only adds a tree; it does not hide one. Evidence: iterations 20261029-141650 (civic needing a tech), 20261029-142802 (civic needing a civic of the main tree), 20261029-142316 (reveal sets). | The civic tree has its own Breakthroughs. Later-age civ trees have no prerequisite gate: unique trees show with the tech Breakthrough and Test of Time trees with the civic Breakthrough (gated reveal modifiers); branch trees keep their base-game conditions. Up to version 0.2.1, no civ could research an Exploration or Modern civic. |
 | **U-CIVTREE** (lost own civics) | A civ that keeps its civ can lose 2 to 4 completed civics of its own Antiquity civ tree at the load (for example Egypt, Greece, Han; not Persia or Rome). They become researchable again. No cause was found, and the game has no call to grant them back. | A small reset: 150 to 250 culture per civic to research them again. |
 | **U-UNIQUE-COMMANDER** | The game sometimes removes the previous civ's unique commander instead of converting it, with its promotions. | One commander lost in some transitions. |
@@ -33,6 +33,14 @@ through the next world transition where there was one, and one 0.2.0 save of a h
 
 - Cities, towns, units, traditions and policies are the same after the load. The stuck civics open
   at once: each civ can research its civic Breakthrough.
+- **Civics finish one per turn for a while, and show "0 turns".** While no civic was open in 0.2.1, the
+  game kept each civ's culture in a hidden bank (`CultureOverflow` in the save). When the civics open,
+  the game pays the bank out, one civic per turn, and the civic screen counts the bank in its turns. It
+  is culture the civ earned, so the mod keeps it (design goal 6). It ends by itself when the bank is
+  spent, and the next world transition clears what is left. No script call can read or change the bank.
+  Seen in the load test 20261029-184748: Egypt (bank about 3,900) finished one civic per turn from turn
+  61 to 65, with 122 culture per turn. New games do not build a bank. The test runs check that
+  (`BANK`, see [Testing](testing.md)).
 - One difference until the next world transition: a civ that kept its civ already shows the Test of
   Time tree of the current age (0.2.1 showed it but kept it locked). In 0.3.0 that tree has no locked
   first civics, so the civ can research it before its civic Breakthrough. The tree was revealed in
@@ -55,7 +63,13 @@ through the next world transition where there was one, and one 0.2.0 save of a h
 - **Deep ocean for a civ behind its gate in the Antiquity world.** An engine query reported that such
   a civ's ships could path onto deep ocean, but no unit was ever seen there in the tests, and the
   paths went through plots the civ had not seen. The check was being made stricter when the work was
-  paused.
+  paused. Such a unit would take no damage: a civ behind its gate is fully protected on deep ocean.
+  The check leaves out Tonga's Tehina, which the base game lets enter deep ocean in Antiquity.
+- **An AI civ of a later age took a civ of an earlier age at a transition.** In a game with
+  Time-Tested civs (iteration 20261031-121009), the AI civ Ming (an Exploration civ played in
+  Antiquity) took Mississippian, an Antiquity civ, in the Exploration world. The AI mode Mirroring
+  should switch to a civ of the new age or keep the civ. Not yet compared with the base game; the
+  mod does not change the civ choice. The test reports it as `CIV CHOICE FAIL`.
 - **Crashes at game start.** About 3 of 60 test games crashed in the first minutes, in the game's
   audio engine. A retry ran clean each time. No crash happened later in a game.
 - **Extra units for a civ that keeps its civ (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
@@ -67,7 +81,10 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   mod's shadow step counts two shadows only for the unique units of the civ's own civs, so the extra
   shadows make new units. Iteration 20261029-150344: Rome (legacy Norman), 17 Chevaliers, then 15
   converted and 17 Swordsmen made (retagged to Rome's infantry class). Iteration 20261029-152811:
-  Egypt (legacy Majapahit), 7 Cetbang converted to Cogs, and 6 Cogs made. A fix must know the
+  Egypt (legacy Majapahit), 7 Cetbang converted to Cogs, and 6 Cogs made. A civ of a later age played
+  from the start (Time-Tested) has the Antiquity Test of Time tree, so it can also take an Antiquity
+  legacy civ: iteration 20261031-125020, Inca (legacy Mississippian), 4 Burning Arrows converted to
+  Archers and 4 Warakaq made. A fix must know the
   legacy civ, or which units the game converted, at the load. The test report names it as
   `KNOWN LIMIT (U-TOT-SHADOW)`, only for a civ that kept its civ and only up to the number of legacy
   unique units gone, so any other duplicate still fails.
@@ -77,7 +94,9 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   since 0.1.0). A DLC civ's own content of an earlier age, for example Assyria's unique unit Magarru
   (`DLC/assyria`, `units.xml`, loaded in Antiquity only), is therefore not in the Exploration world.
   At the transition the game replaces such a unit, and an extra unit can come back. Iteration
-  20261029-204508: Assyria (to Inca) had one Magarru and got a Courser and a Horseman. Other DLC
+  20261029-204508: Assyria (to Inca) had one Magarru and got a Courser and a Horseman. Iteration
+  20261031-121009: Bulgaria (to Prussia) had one Boyar; the Modern world has no Boyar data, so the
+  shadow step did not see it as a unique unit and made an extra Mortar (`DUPLICATE FAIL`). Other DLC
   content of an earlier age (unique buildings, civic trees) was not checked. To be fixed in a later
   version: copy the DLC content of the other ages too.
 
