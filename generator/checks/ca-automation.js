@@ -3,6 +3,7 @@
 // Loaded by the autoplay suite (autoplay/ContinuousAgesTransition.json) from the mod folder.
 import { AutomationBasePlayGame } from '../../base-standard/ui/automation/automation-base-play-game.js';
 import { Shared_OnAutomationEvent, PassTest, FailTest, LogCurrentPlayers } from '../../base-standard/ui/automation/automation-test-support.js';
+import './ca-live.js';
 
 // Civic trees the player has (a tree a player does not have shows its nodes as not unlocked),
 // and the traditions and policies unlocked (the effect of civics, kept across ages in the base game).
@@ -62,6 +63,25 @@ function cultureState(player) {
     traditions: (c?.getUnlockedTraditions(CultureSlotTypes.TRADITION_CULTURE_SLOT) ?? []).length,
     policies: (c?.getUnlockedTraditions(CultureSlotTypes.POLICY_CULTURE_SLOT) ?? []).length,
   };
+}
+// Resource plots per type, map-wide, at the age end (design goal 1: old resources stay on the map). The
+// transition script counts them again after the load (RELOADRES); iterate.py compares the two. Parts of 20:
+// the longest short name (SILVER_DISTANT_LANDS) keeps a part under 800 characters (UI.log cuts at about 1000).
+function logResources(age) {
+  const counts = new Map();
+  const w = GameplayMap.getGridWidth(), h = GameplayMap.getGridHeight();
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const r = GameplayMap.getResourceType(x, y);
+      if (r === ResourceTypes.NO_RESOURCE) continue;
+      const t = (GameInfo.Resources.lookup(r)?.ResourceType ?? `#${r}`).replace(/^RESOURCE_/, "");
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+  }
+  const list = [...counts].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  for (let i = 0; i === 0 || i < list.length; i += 20) {
+    console.warn(`[CA-CHECK][RESOURCES] ${JSON.stringify({ when: "end", age, part: i / 20, plots: list.slice(i, i + 20) })}`);
+  }
 }
 // A node counts as done at depth 1 (the same rule as nodeDone in ca-checks.js; this module has its own copy).
 function nodeDone(playerId, hash) {
@@ -160,6 +180,8 @@ class AutomationTestCAPlayAges extends AutomationBasePlayGame {
       try { this.logAgeEnd(age, player); }
       catch (e) { console.warn(`[CA-CHECK][ERROR] age end, player ${player.id}: ${e}`); }
     }
+    try { logResources(age); }
+    catch (e) { console.warn(`[CA-CHECK][ERROR] age end resources: ${e}`); }
     // The last age has no next age: end the test as PlayGame does.
     if (age === "AGE_MODERN") {
       super.onGameAgeEndedListener();
@@ -187,7 +209,8 @@ class AutomationTestCAPlayAges extends AutomationBasePlayGame {
     const civAge = has("NODE_TECH_CA_MODERN_BREAKTHROUGH") ? "MO" : has("NODE_TECH_CA_EXPLORATION_BREAKTHROUGH") ? "EX" : "AQ";
     const civicAge = has("NODE_CIVIC_CA_MODERN_BREAKTHROUGH") ? "MO" : has("NODE_CIVIC_CA_EXPLORATION_BREAKTHROUGH") ? "EX" : "AQ";
     console.warn(`[CA-CHECK][AGEEND] ${JSON.stringify({
-      age, turn: Game.turn, id: player.id, civAge, civicAge, gold: Math.round(player.Treasury?.goldBalance ?? -1), cities, towns,
+      age, turn: Game.turn, id: player.id, civAge, civicAge, gold: Math.round(player.Treasury?.goldBalance ?? -1),
+      influence: Math.round(player.DiplomacyTreasury?.diplomacyBalance ?? -1), cities, towns,
       units: (player.Units?.getUnitIds() ?? []).length, techs, civics, ...cultureState(player), ...growthState(player) })}`);
     logChunks("CIVICS", { when: "end", age, id: player.id }, "nodes", civicNodes);
     logChunks("UNITS", { when: "end", age, id: player.id }, "types", unitTypes(player));
@@ -204,80 +227,12 @@ handler.register();
 // does not start autoplay: slot 0 stays human and a script drives it through the UI debugger (port 9444).
 // The helpers below exist only in test builds (this file ships only with build_mod.py --checks).
 const scenarioLog = (record) => console.warn(`[CA-CHECK][SCENARIO] ${JSON.stringify(record)}`);
-function onceEvent(name, test = () => true, timeoutMs = 600000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { engine.off(name, listener); reject(new Error(`timed out waiting for ${name}`)); }, timeoutMs);
-    const listener = (data) => {
-      if (!test(data)) return;
-      clearTimeout(timer);
-      engine.off(name, listener);
-      resolve(data);
-    };
-    engine.on(name, listener);
-  });
-}
-const localId = () => GameContext.localPlayerID;
-const capitalOf = (pid) => (Players.get(pid)?.Cities?.getCityIds() ?? []).find((id) => Cities.get(id)?.isCapital);
-globalThis.caLive = {
-  ready: false,
-  log: scenarioLog,
-  hasNode: (type, pid = localId()) => hasNode(pid, type),
-  // The AI plays slot 0 for about n turns (Autoplay), then gives it back. Autoplay's turn count is not exact
-  // (live test: 1 turn from turn 1 played none, 2 from turn 1 reached turn 3, and the turn can move once more
-  // after it ends), so this resolves when slot 0's turn is active and the turn has stayed the same for 2 s.
-  async advance(n = 1) {
-    const done = onceEvent("AutoplayEnded");
-    Autoplay.setTurns(n);
-    Autoplay.setReturnAsPlayer(0);
-    Autoplay.setObserveAsPlayer(0);
-    Autoplay.setActive(true);
-    await done;
-    let turn = -1;
-    for (let i = 0; i < 120; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      const active = Players.get(localId())?.isTurnActive && !Autoplay.isActive;
-      if (active && Game.turn === turn) break;
-      turn = active ? Game.turn : -1;
-    }
-    return Game.turn;
-  },
-  // Ends slot 0's turn without the AI (blockers such as research or idle units may refuse it).
-  async endTurn() {
-    const turn = Game.turn;
-    const begun = onceEvent("LocalPlayerTurnBegin", () => Game.turn > turn);
-    GameContext.sendTurnComplete();
-    await begun;
-    return Game.turn;
-  },
-  // The engine's answers for training a unit in slot 0's capital (the UI's queries are reliable for slot 0).
-  canTrain(unitType, pid = localId()) {
-    const city = capitalOf(pid);
-    const def = GameInfo.Units.lookup(unitType);
-    if (city === undefined || !def) return { city: city !== undefined, unit: !!def };
-    const r = Game.CityOperations.canStart(city, CityOperationTypes.BUILD, { UnitType: def.$hash }, false);
-    const q = (Game.CityOperations.canStartQuery(city, CityOperationTypes.BUILD, CityQueryType.Unit) ?? []).find((x) => x.index === def.$index)?.result;
-    return { ok: !!r?.Success, reasons: r?.FailureReasons ?? [], listed: !!q, queryOk: !!q?.Success, neededUnlock: q?.NeededUnlock,
-             buildUnit: GameInfo.Units.lookup(Players.get(pid)?.Units?.getBuildUnit(unitType))?.UnitType ?? null };
-  },
-  // Debug operations (the game's tuner panels use them); canStart first, so a refusal shows its reasons.
-  grantNode(type, pid = localId(), fullyUnlock = 0) {
-    const args = { ProgressionTreeNodeType: GameInfo.ProgressionTreeNodes.lookup(type)?.$hash, FullyUnlock: fullyUnlock };
-    const can = Game.PlayerOperations.canStart(pid, PlayerOperationTypes.GRANT_TREE_NODE, args, false);
-    if (can?.Success) Game.PlayerOperations.sendRequest(pid, PlayerOperationTypes.GRANT_TREE_NODE, args);
-    return { sent: !!can?.Success, reasons: can?.FailureReasons ?? [] };
-  },
-  createUnit(type, x, y, pid = localId()) {
-    const args = { Kind: "UNIT", Type: type, Location: { x, y }, Owner: pid };
-    const can = Game.PlayerOperations.canStart(pid, "CREATE_ELEMENT", args, false);
-    Game.PlayerOperations.sendRequest(pid, "CREATE_ELEMENT", args);
-    return { canStart: !!can?.Success, reasons: can?.FailureReasons ?? [] };
-  },
-  // Ends the test: the suite's next test (QuitApp) closes the game.
-  finish(ok = true, message = "") {
-    scenarioLog({ finish: ok, message });
-    if (ok) PassTest(message); else FailTest(message);
-    return ok;
-  },
+// The helpers (globalThis.caLive) are in ca-live.js, which live.py also injects into a normal game. Ending the
+// test needs the automation framework, so finish is here: the suite's next test (QuitApp) closes the game.
+globalThis.caLive.finish = (ok = true, message = "") => {
+  scenarioLog({ finish: ok, message });
+  if (ok) PassTest(message); else FailTest(message);
+  return ok;
 };
 
 class AutomationTestCALive extends AutomationTestCAPlayAges {
@@ -292,8 +247,30 @@ class AutomationTestCALive extends AutomationTestCAPlayAges {
   }
   gameStarted() {
     Automation.log("CALive: game started; slot 0 is left to the script");
+    this.markReady("started");
+  }
+  markReady(how) {
     globalThis.caLive.ready = true;
-    scenarioLog({ ready: true, turn: Game.turn, localPlayer: GameContext.localPlayerID });
+    scenarioLog({ ready: true, how, turn: Game.turn, age: GameInfo.Ages.lookup(Game.age)?.AgeType, localPlayer: GameContext.localPlayerID });
+  }
+  // The base test passes (ends) when it is restarted in the shell after the game started, and starts autoplay
+  // when it resumes a game. A live game goes to the shell at a world transition (the civ selection screen), and
+  // the script makes the choice there: wait. After the load, mark the game ready without autoplay.
+  restart() {
+    if (UI.isInShell()) {
+      const started = Automation.getParameter("CurrentTest", "HasStarted");
+      if (started !== null && started != 0) {
+        Automation.log("CALive: in the shell after the game started (a world transition); waiting for the script");
+        return;
+      }
+      this.run();
+      return;
+    }
+    this.resumeGame();
+  }
+  resumeGame() {
+    Automation.log("CALive: game resumed (a load or a world transition); slot 0 is left to the script");
+    this.markReady("resumed");
   }
   stop() {
     super.stop();

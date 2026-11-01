@@ -6,6 +6,7 @@
 //   [CA-CHECK][STATE] {"age","turn","id","civAge","gold","techs",...} values a transition could reset
 //   [CA-CHECK][BUILD] {"turn","id","ok","needUnlock","noPlot",...}   capital: can it build Exploration buildings?
 //   [CA-CHECK][CIVICGATE] {"turn","id","gates","control","open","stuck","leak"} later-age civics: may the civ research them?
+//   [CA-CHECK][TECHGATE] {"turn","id","gates","control","current","open","stuck","leak"} later-age techs: the same for techs
 //   [CA-CHECK][REPLACE] {"turn","id","uu","base","gate","buildUnit",...} rule 2i: a locked unique unit does not block its base unit
 //   [CA-CHECK][BANK] {"turn","id","culture","science"} hidden yield that no node takes (a growing bank = a dead end in a tree)
 //   [CA-CHECK][FAIL] ...    a rule of the design was broken
@@ -505,6 +506,84 @@ function civicGateCheck(player, turn) {
   log("CIVICGATE", JSON.stringify(out));
 }
 
+// Tech gate check, the positive side of the tech gates (as civicGateCheck for civics): later-age techs of the
+// joined main tree (TREE_TECHS_AQ: NODE_TECH_EX_*, NODE_TECH_MO_* and the Breakthrough techs), with the engine's
+// verdict as the tech screen asks it (SET_TECH_TREE_NODE, base-standard/ui/tech-tree/screen-tech-tree.js). The gate
+// of an Exploration or Modern tech is the Breakthrough tech of its age; a Breakthrough needs only its prereqs.
+//   stuck: prereqs and gate complete, but refused at two checks in a row (FAIL)
+//   leak:  allowed without the gate of its age, prereqs or not (FAIL); researching such a tech fails too
+// A control tech (an Antiquity tech with its prereqs complete) shows that the verdict works for this player.
+// PlayerOperations answer for AI players too (CIVICGATE: the control civic allowed in 2049 of 2051 records).
+// The tech being researched is not asked: a refusal of it would not mean stuck (its turns can run past two checks).
+// Repeatable nodes (Future Tech) are left out: their state cycles.
+const TECH_GATE = { EX: GATE, MO: MO_GATE };
+function techAge(type) {
+  const m = /^NODE_TECH_(EX|MO)_/.exec(type);
+  return m ? m[1] : type === GATE ? "EX" : type === MO_GATE ? "MO" : null;
+}
+function techVerdict(id, node) {
+  const ask = (v) => Game.PlayerOperations.canStart(id, PlayerOperationTypes.SET_TECH_TREE_NODE, { ProgressionTreeNodeType: v }, false);
+  const byHash = safeCall(() => ask(node.$hash));
+  if (byHash?.Success) return { ok: true, arg: "hash" };
+  const byIndex = safeCall(() => ask(node.$index));
+  if (byIndex?.Success) return { ok: true, arg: "index" };
+  const why = byHash?.FailureReasons ?? byIndex?.FailureReasons ?? (typeof byHash === "string" ? byHash : null);
+  return { ok: false, why: why ? JSON.stringify(why).slice(0, 80) : null };
+}
+const techStuckSince = new Map();
+function techGateCheck(player, turn) {
+  const id = player.id;
+  const gates = { EX: hasNode(id, GATE), MO: hasNode(id, MO_GATE) };
+  const current = safeCall(() => player.Techs?.getResearching()?.type);
+  const out = { turn, age: GameInfo.Ages.lookup(Game.age)?.AgeType, id, gates, control: null, current: null,
+                open: [], waiting: 0, stuck: [], leak: [] };
+  for (const node of GameInfo.ProgressionTreeNodes) {
+    const type = node.ProgressionTreeNodeType;
+    if (node.ProgressionTree !== "TREE_TECHS_AQ" || node.Repeatable || hasNode(id, type)) continue;
+    const age = techAge(type), n = type.replace(/^NODE_TECH_/, "");
+    const passed = !age || type === TECH_GATE[age] || gates[age];
+    if (current != null && (current === node.$hash || current === node.$index)) {
+      out.current = n;
+      if (!passed) out.researching = n;
+      continue;
+    }
+    // Control from the Antiquity techs only.
+    if (!age && (out.control || !type.startsWith("NODE_TECH_AQ_"))) continue;
+    // CIVIC_PREREQS holds the prereqs of every node, techs too.
+    const missing = (CIVIC_PREREQS.get(type) ?? []).filter((p) => !hasNode(id, p));
+    // Without its gate a tech is asked even with prereqs missing: a grant or a hole in the chain is a leak.
+    if (missing.length > 0 && passed) { if (age) out.waiting++; continue; }
+    const v = techVerdict(id, node);
+    if (!age) { out.control = { n, ...v }; continue; }
+    if (v.ok && !passed) out.leak.push(n);
+    else if (v.ok) out.open.push(n);
+    else if (passed) out.stuck.push({ n, why: v.why });
+  }
+  // The verdict counts only if the control tech is allowed (no control: every Antiquity tech is done).
+  const trusted = !out.control || out.control.ok;
+  if (out.researching) log("FAIL", `turn ${turn}: player ${id} is researching the later-age tech ${out.researching} without its gate`);
+  if (trusted && out.leak.length > 0) {
+    log("FAIL", `turn ${turn}: player ${id} may research later-age techs without its gate: ${out.leak.slice(0, 6).join(",")}`);
+  }
+  for (const s of out.stuck) {
+    const key = `${id}:${s.n}`;
+    if (!techStuckSince.has(key)) techStuckSince.set(key, turn);
+    if (trusted && techStuckSince.get(key) < turn) {
+      log("FAIL", `turn ${turn}: player ${id} cannot research ${s.n} (prereqs and gate complete since turn ${techStuckSince.get(key)}): ${s.why}`);
+    }
+  }
+  for (const key of [...techStuckSince.keys()]) {
+    if (key.startsWith(`${id}:`) && !out.stuck.some((s) => key === `${id}:${s.n}`)) techStuckSince.delete(key);
+  }
+  out.trusted = trusted;
+  // Short lists: UI.log cuts a line at about 1000 characters.
+  out.nOpen = out.open.length;
+  out.open = out.open.slice(0, 6);
+  out.stuck = out.stuck.slice(0, 3);
+  out.leak = out.leak.slice(0, 6);
+  log("TECHGATE", JSON.stringify(out));
+}
+
 // The world snapshot runs once per checked turn. Each civ is checked during its own turn:
 // the engine answers placement and upgrade queries only for the player whose turn is active
 // (checking all civs at once gave "no valid plot" for every civ but the active one).
@@ -585,6 +664,7 @@ function playerCheck(player, turn) {
   if (turn % BUILD_CHECK_EVERY === 0) buildCheck(player, turn);
   if (turn % GATE_CHECK_EVERY === 0) gateCheck(player, turn, civAge);
   if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) civicGateCheck(player, turn);
+  if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) techGateCheck(player, turn);
   if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) catchupCheck(player, turn);
   if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) replaceCheck(player, turn);
   if (firstCheckAfterLoad || turn % GATE_CHECK_EVERY === 0) bankCheck(player, turn);
@@ -653,6 +733,8 @@ function catchupCheck(player, turn) {
                 science: player.Stats?.getNetYield(YieldTypes.YIELD_SCIENCE) ?? -1,
                 culture: player.Stats?.getNetYield(YieldTypes.YIELD_CULTURE) ?? -1, nodes: {} };
   for (const g of [GATE, MO_GATE]) if (!hasNode(id, g)) (out.nodes["tech gate"] ??= []).push(nodeSample(player, "tech", g));
+  // The civic Breakthroughs too (new in 0.3.0; their catch-up cost was not measured, docs/settings.md).
+  for (const g of Object.values(CIVIC_GATE)) if (!hasNode(id, g)) (out.nodes["civic gate"] ??= []).push(nodeSample(player, "civic", g));
   for (const [sys, prefix] of [["tech", "NODE_TECH_"], ["civic", "NODE_CIVIC_"]]) {
     for (const age of Object.values(AGE_PREFIX)) {
       const open = [];

@@ -19,7 +19,9 @@ param(
     # NONE sees nothing, so there is less to show (faster, but you cannot watch).
     [ValidateSet('OBSERVER', 'NONE', '0')][string]$ObserveAs = 'OBSERVER',
     # Suite file in the autoplay folder. ContinuousAgesTransition.json continues through age transitions.
-    [string]$Suite = 'ContinuousAgesAutoplay.json'
+    [string]$Suite = 'ContinuousAgesAutoplay.json',
+    # Test parameters to set in the suite's first test, as "Key=Value;Key=Value" (for example "MapSeed=11;GameSeed=11").
+    [string]$Set = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +37,12 @@ $suite = Join-Path $env:TEMP $Suite
 # UTF-8 without a byte-order mark: Windows PowerShell's "-Encoding utf8" adds one,
 # and the game ignored a suite file that started with it.
 $text = (Get-Content -Raw $template) -replace 'Turns=\d+', "Turns=$Turns" -replace 'ObserveAs=\w+', "ObserveAs=$ObserveAs"
+foreach ($kv in ($Set -split ';' | Where-Object { $_ -match '=' })) {
+    $key, $value = $kv -split '=', 2
+    $pattern = "\b$([regex]::Escape($key))=[^,}]*"
+    if ($text -match $pattern) { $text = [regex]::new($pattern).Replace($text, "$key=$value", 1) }
+    else { $text = [regex]::new('(Test=\w+)').Replace($text, "`$1, $key=$value", 1) }
+}
 [System.IO.File]::WriteAllText($suite, $text, (New-Object System.Text.UTF8Encoding $false))
 
 # A crash reporter window left by an earlier run (for example an exit crash) keeps Steam from

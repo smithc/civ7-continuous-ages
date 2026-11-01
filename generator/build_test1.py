@@ -632,10 +632,15 @@ TRANSITION_EDITS = [
      "    console.log(`[CA] Earth resource ${resourceToBePlaced} not placed at ${xCoord},${yCoord}: ${caWhy}`);\n"
      "    return;\n"
      "  }\n"),
-    # Check record: each civ's gold after the reload, before any civ plays (Scripting.log).
+    # Check record: each civ's gold after the reload, before any civ plays (Scripting.log). Influence
+    # (the balance that capInfluence cuts), cities and towns (counted as the AGEEND record counts them):
+    # the base game's resets of design goal 1, read by iterate.py reload_reset_report().
     ("    Players.AdvancedStart.get(iPlayer)?.dynamicCardsAddedComplete();\n",
      "    Players.AdvancedStart.get(iPlayer)?.dynamicCardsAddedComplete();\n"
      '    console.log(`[CA-CHECK][RELOAD] {"id":${iPlayer},"gold":${Math.round(Players.get(iPlayer)?.Treasury?.goldBalance ?? -1)},'
+     '"influence":${Math.round(Players.get(iPlayer)?.DiplomacyTreasury?.diplomacyBalance ?? -1)},'
+     '"cities":${(Players.get(iPlayer)?.Cities?.getCityIds() ?? []).filter((c) => !Cities.get(c)?.isTown).length},'
+     '"towns":${(Players.get(iPlayer)?.Cities?.getCityIds() ?? []).filter((c) => Cities.get(c)?.isTown).length},'
      '"units":${Players.get(iPlayer)?.Units?.getUnitIds()?.length ?? -1},'
      '"military":${(Players.get(iPlayer)?.Units?.getUnitIds() ?? []).filter((u) => GameInfo.Units.lookup(Units.get(u)?.type)?.CoreClass == "CORE_CLASS_MILITARY").length},'
      '"militaryByTag":${JSON.stringify(caMilitaryByTag(Players.get(iPlayer)))},'
@@ -685,6 +690,46 @@ TRANSITION_EDITS = [
      "  }\n"
      "}\n"
      "function caShadowCounts(iPlayer) {\n"),
+    # Check record (design goal 1, old resources stay): resource plots per type, map-wide, after the load
+    # ('before', ahead of the map steps) and after the whole transition step ('after'). iterate.py compares
+    # them with the age end's RESOURCES record (UI). Island plots are counted apart: the base game's
+    # Exploration step (replaceIslandResources, MapIslandBehavior) replaces island resources with treasure
+    # resources, 1 to 18 plots in 95 earlier runs.
+    ("function caShadowCounts(iPlayer) {\n",
+     "function caLogResources(when) {\n"
+     "  try {\n"
+     "    const counts = new Map();\n"
+     "    const w = GameplayMap.getGridWidth(), h = GameplayMap.getGridHeight();\n"
+     "    for (let y = 0; y < h; y++) {\n"
+     "      for (let x = 0; x < w; x++) {\n"
+     "        const r = GameplayMap.getResourceType(x, y);\n"
+     "        if (r === ResourceTypes.NO_RESOURCE) continue;\n"
+     "        const t = (GameInfo.Resources.lookup(r)?.ResourceType ?? `#${r}`).replace(/^RESOURCE_/, '');\n"
+     "        const e = counts.get(t) ?? [0, 0];\n"
+     "        e[0]++;\n"
+     "        if (GameplayMap.hasPlotTag(x, y, PlotTags.PLOT_TAG_ISLAND)) e[1]++;\n"
+     "        counts.set(t, e);\n"
+     "      }\n"
+     "    }\n"
+     "    const age = GameInfo.Ages.lookup(Game.age)?.AgeType ?? null;\n"
+     "    const list = [...counts].map(([t, [n, island]]) => [t, n, island]).sort((a, b) => (a[0] < b[0] ? -1 : 1));\n"
+     "    // Parts of 20 (long lines are cut in the log).\n"
+     "    for (let i = 0; i === 0 || i < list.length; i += 20) {\n"
+     "      console.log(`[CA-CHECK][RELOADRES] ${JSON.stringify({ when, age, part: i / 20, plots: list.slice(i, i + 20) })}`);\n"
+     "    }\n"
+     "  } catch (e) {\n"
+     "    console.log(`[CA] resource record error: ${e}`);\n"
+     "  }\n"
+     "}\n"
+     "function caShadowCounts(iPlayer) {\n"),
+    ("  doMapUpdates();\n",
+     "  caLogResources('before'); // Continuous Ages check record: resource plots after the load\n"
+     "  doMapUpdates();\n"),
+    ("  }\n}\nfunction removeObsoleteResources(aGeneratedResourceHashes) {\n",
+     "  }\n"
+     "  caLogResources('after'); // Continuous Ages check record: resource plots after the transition step\n"
+     "}\n"
+     "function removeObsoleteResources(aGeneratedResourceHashes) {\n"),
 ]
 
 

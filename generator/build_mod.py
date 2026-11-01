@@ -400,6 +400,8 @@ class WorldBuild:
                 defs.append(copy)
                 granted.append(new_id)
             for mid, (collection, effect) in spec.get("new", {}).items():
+                if mid == "CA_EX_MEET_DISTANT_LAND_CIVS" and "meet" in disabled_rules(self.args):
+                    continue  # negative control (test build): the meeting flag left out
                 defs.append(ET.Element("{GameEffects}Modifier", {"id": mid, "collection": collection, "effect": effect}))
                 granted.append(mid)
             lines += [f"-- {NAME[age]} baseline at the civ's {NAME[age]} Breakthrough (hidden unlocks)."]
@@ -472,7 +474,7 @@ class WorldBuild:
         lines += ["", "-- 2i. A unique unit that waits for its Breakthrough does not block the base unit it replaces",
                   "--     until then (the base unit is of an earlier age). At the gate the base unit is disabled",
                   "--     for the civ (modifier CA_REPLACE_<unique unit> on its trait), as the replacement did."]
-        for uu, base, trait, _age in self.replace_gaps:
+        for uu, base, trait, _age in ([] if "2i" in disabled_rules(args) else self.replace_gaps):
             lines += [f"DELETE FROM UnitReplaces WHERE CivUniqueUnitType = '{uu}' AND ReplacesUnitType = '{base}';",
                       f"INSERT OR IGNORE INTO TraitModifiers (TraitType, ModifierId) SELECT '{trait}', 'CA_REPLACE_{uu}' "
                       f"WHERE EXISTS (SELECT 1 FROM Units WHERE UnitType = '{uu}') AND EXISTS (SELECT 1 FROM Traits WHERE TraitType = '{trait}');"]
@@ -492,7 +494,15 @@ class WorldBuild:
         # (Removed: rule 2e, ObsoletesTraditionType = NULL. It did not stop the Modern-load policy loss
         # (iteration 20261025-001907) and made about 100 tradition upgrades stack inside each age.)
         lines += ["", "-- 3. Governments: the chooser lists every StartingGovernments row; offer the world age's.",
-                  f"DELETE FROM StartingGovernments WHERE AgeType != '{self.world}';", ""]
+                  f"DELETE FROM StartingGovernments WHERE AgeType != '{self.world}';"]
+        # The AI does not use StartingGovernments: it takes its civ's GovernmentBiases favourite, whatever its age.
+        # In the base game a bias toward another age's government points at a type that is not loaded; here all
+        # governments are loaded, so civs took them (105 of 105 runs had a civ with an older-age government in a
+        # later world, for example Egypt with Oligarchy in the Modern world, 20261029-202958; Mughal took
+        # Bureaucratic Monarchy in Antiquity, 20261031-121009). Without those biases the AI picks as in the base game.
+        lines += ["--    The AI's government biases toward governments that this world does not offer are removed (as in the base game).",
+                  "DELETE FROM AiFavoredItems WHERE ListType IN (SELECT ListType FROM AiLists WHERE System = 'GovernmentBiases') "
+                  "AND Item IN (SELECT GovernmentType FROM Governments) AND Item NOT IN (SELECT GovernmentType FROM StartingGovernments);", ""]
         # The world age ends as in the base game (the transition is kept, without the reset),
         # unless a test sets the length.
         if args.age_points:
@@ -501,7 +511,7 @@ class WorldBuild:
                       f"UPDATE AgeProgressions SET MaxPoints_Abbreviated = {points}, MaxPoints_Standard = {points}, "
                       f"MaxPoints_Long = {points} WHERE AgeType = '{self.world}';", ""]
         baseline_lines, defs, baseline_report = self.baseline_adapter()
-        defs += replace_gap_modifiers(self.replace_gaps)  # rule 2i
+        defs += [] if "2i" in disabled_rules(args) else replace_gap_modifiers(self.replace_gaps)  # rule 2i
         lines += ["-- 5. Baseline adapters."] + baseline_lines + [""]
         # The Exploration civ trait's free Cog came at the world transition to civs still in Antiquity,
         # and a second time to civs that got it at their gate (iteration 20261024-224137). One source:
@@ -587,6 +597,7 @@ class WorldBuild:
             # units on deep ocean roll, and in the Antiquity world only civs past their gate can be there. A civ
             # behind its gate keeps the base game's Antiquity: full protection (Tonga's Tehina may enter deep
             # ocean in Antiquity). Shipbuilding (in the joined tree) protects the others, as in Exploration.
+        if self.world == "AGE_ANTIQUITY" and "6b" not in disabled_rules(args):
             lines += ["", "-- 6b. Exploration deep-ocean damage for civs past their gate (until Shipbuilding).",
                       "--     Civs behind the gate are fully protected (CA_AQ_WATER_PROTECTION_BEFORE_GATE)."]
             src = self.game / "Base" / "modules" / "age-exploration" / "data" / "gameplay-systems.xml"
@@ -609,6 +620,11 @@ class WorldBuild:
             defs.append(m)
             lines.append("INSERT INTO TraitModifiers (TraitType, ModifierId) VALUES ('TRAIT_LEADER_MAJOR_CIV', 'CA_AQ_WATER_PROTECTION_BEFORE_GATE');")
             lines.append("")
+        if "civic-gate" in disabled_rules(args):
+            # Negative control (test build): the 0.2.1 dead end again. A prereq in another tree never opens, so no
+            # civ can research the Exploration civic Breakthrough; the BANK and CIVICGATE checks must fail.
+            lines += ["-- NEGATIVE CONTROL civic-gate: the Exploration civic Breakthrough needs the Breakthrough tech (never opens).",
+                      f"INSERT INTO ProgressionTreePrereqs (Node, PrereqNode) VALUES ('{CIVIC_GATES['AGE_EXPLORATION']}', '{GATES['AGE_EXPLORATION']}');", ""]
         if args.fast_test is not None:
             # Civics too, so a short run reaches the civic gates (with techs only, no civ finished the
             # Antiquity civics in 80 turns; iteration 20261029-141102).
@@ -1073,6 +1089,60 @@ def modinfo_xml(builds: list[WorldBuild], checks: bool, fast, game: Path) -> str
 """
 
 
+def control_modinfo_xml(age_points: int | None = None) -> str:
+    """A control build (build_mod.py --control, test only): the base game with the mod's logging and the automation
+    test, and none of its data, rules or transition script. A run with it shows what the base game does in the same
+    setup (for example the AI's civ choice at a transition with Time-Tested civs). With --age-points, the one data
+    change is the age length (data/control-age-points.sql), so that a test reaches a world transition quickly."""
+    age_group = ""
+    if age_points:
+        (OUT / "data").mkdir(parents=True, exist_ok=True)
+        (OUT / "data" / "control-age-points.sql").write_text(
+            f"-- Control build, test setting: each world age ends at {age_points} points.\n"
+            f"UPDATE AgeProgressions SET MaxPoints_Abbreviated = {age_points}, MaxPoints_Standard = {age_points}, "
+            f"MaxPoints_Long = {age_points};\n", encoding="utf-8")
+        age_group = """
+		<ActionGroup id="ca-control-age-points" scope="game" criteria="always">
+			<Properties><LoadOrder>200</LoadOrder></Properties>
+			<Actions>
+				<UpdateDatabase>
+					<Item>data/control-age-points.sql</Item>
+				</UpdateDatabase>
+			</Actions>
+		</ActionGroup>"""
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<Mod id="{MOD_ID}" version="1" xmlns="ModInfo">
+	<Properties>
+		<Name>{MOD_NAME} - CONTROL (base game rules)</Name>
+		<Description>Test build: logging only, no rules.</Description>
+		<Authors>Continuous Ages project</Authors>
+		<AffectsSavedGames>0</AffectsSavedGames>
+	</Properties>
+	<Dependencies>
+		<Mod id="base-standard" title="LOC_MODULE_BASE_STANDARD_NAME" />
+	</Dependencies>
+	<ActionCriteria>
+		<Criteria id="always">
+			<AlwaysMet></AlwaysMet>
+		</Criteria>
+	</ActionCriteria>
+	<ActionGroups>
+		<ActionGroup id="ca-ui" scope="game" criteria="always">
+			<Actions>
+				<UIScripts>
+					<Item>ui/ca-civ-age.js</Item>
+					<Item>ui/ca-checks.js</Item>
+				</UIScripts>
+				<UpdateText>
+					<Item>text/en_us/ContinuousAgesText.xml</Item>
+				</UpdateText>
+			</Actions>
+		</ActionGroup>{age_group}
+	</ActionGroups>
+</Mod>
+"""
+
+
 def age_starter_items(sims: dict) -> dict:
     """Generic units and buildings that a later age makes available at its start (no unlock row).
     With all ages loaded, every civ could build them from turn 1, so they get their age's gate
@@ -1177,6 +1247,49 @@ def replace_gap_modifiers(gaps) -> list[ET.Element]:
     return out
 
 
+# The proof of each rule (docs/testing.md, "Keeping the tests current"): the check or scenario that fails when the rule
+# breaks. The build stops when the rules SQL has a rule id ("-- 2i. ...") that is not here, so a new rule names its proof.
+RULE_PROOFS = {
+    "1": "continuity of techs and civics (STATE, AGEEND, CIVICS: CONTINUITY FAIL); TECHGATE and CIVICGATE",
+    "2": "gate_content.js (an Exploration building needs no unlock after the gate); production by native age (report)",
+    "2b": "units of a later age at a transition or in its first turn (LEAK FAIL)",
+    "2c": "units kept at the reload (RELOADUNITS: DUPLICATE and LOST FAIL)",
+    "2d": "production and purchase leaks, units held at the age end (LEAK FAIL); gate_content.js",
+    "2f": "production leaks of Exploration civ-tree items in the Modern world (LEAK FAIL)",
+    "2g": "upgrade_across_ages.js",
+    "2h": "civic and policy continuity (CONTINUITY FAIL); a later-age civic tree shown early (CIVICGATE FAIL)",
+    "2i": "rule_2i.js (Ming, Mughal); REPLACE (FAIL); base unit started after the gate (FAIL); kept base unit converted (LEAK FAIL)",
+    "3": "GOV-AGE (a government of another age: FAIL)",
+    "4": "test setting",
+    "5": "meet_distant.js (meeting flag); deep_ocean_turn.js and ocean_damage.js (ocean travel); BUILD and GATE (reports)",
+    "5b": "the free ship before the gate (LEAK FAIL)",
+    "5c": "policies by name (POLICIES: CONTINUITY FAIL); tools/savecompat.py (list positions of the ids)",
+    "5e": "civ abilities at the reload (GATEMODS: ABILITY LEAK FAIL)",
+    "5f": "techs and civics without their gate (FAIL)",
+    "5i": "a Test of Time tree shown early (CIVICGATE FAIL); civic continuity (Persistence suites)",
+    "5j": "legacy-civ items before the Breakthrough tech (LEAK FAIL)",
+    "6": "deep_ocean_turn.js",
+    "6b": "ocean_damage.js",
+    "7": "test setting",
+}
+
+
+def check_rule_proofs(sql: str, world: str) -> None:
+    missing = sorted(set(re.findall(r"(?m)^-- (\d+[a-z]?)\. ", sql)) - set(RULE_PROOFS))
+    if missing:
+        raise SystemExit(f"world {world}: rule(s) {', '.join(missing)} have no proof in RULE_PROOFS (build_mod.py; docs/testing.md)")
+
+
+# Negative controls (build_mod.py --disable-rule NAME, test builds only): a build without a rule, to show that
+# the rule's test fails without it (docs/testing.md, "A new check must fail once").
+DISABLE_RULES = {"2i": "unique units block their base units again", "6b": "no deep-ocean damage in the Antiquity world",
+                 "meet": "no meeting flag at the Exploration Breakthrough", "civic-gate": "the 0.2.1 civic dead end"}
+
+
+def disabled_rules(args) -> set:
+    return set(getattr(args, "disable_rule", None) or [])
+
+
 # Probes (build_mod.py --probe NAME, test builds only): test modifiers that answer one engine question in a
 # short observed run. ca-checks.js logs the engine's answer for the local player's capital each turn
 # ([CA-CHECK][PROBE]). Each entry: (modifier id, attributes, unit argument, extra arguments, MinGameTurn).
@@ -1278,10 +1391,18 @@ def main() -> None:
                     help="release build: write build-info.json and zip the mod to build/dist (refused with test settings)")
     ap.add_argument("--probe", choices=sorted(PROBES), default=None,
                     help="test build: add the test modifiers of a probe (needs --checks; see PROBES)")
+    ap.add_argument("--disable-rule", action="append", choices=sorted(DISABLE_RULES), default=None,
+                    help="test build: a negative control without this rule (repeatable; see DISABLE_RULES)")
+    ap.add_argument("--control", action="store_true",
+                    help="test build: the base game with the mod's logging and automation test only (needs --checks)")
     args = ap.parse_args()
     game = args.game_dir
-    if args.package and (args.checks or args.fast_test is not None or args.age_points or args.probe):
-        ap.error("--package makes a release build: leave out --checks, --fast-test, --age-points and --probe")
+    if args.package and (args.checks or args.fast_test is not None or args.age_points or args.probe or args.disable_rule or args.control):
+        ap.error("--package makes a release build: leave out --checks, --fast-test, --age-points, --probe, --disable-rule and --control")
+    if args.control and not args.checks:
+        ap.error("--control makes a test build: add --checks")
+    if args.disable_rule and not args.checks:
+        ap.error("--disable-rule makes a test build: add --checks")
     if args.probe and not args.checks:
         ap.error("--probe needs --checks (the check script logs the probe's answers)")
 
@@ -1313,6 +1434,7 @@ def main() -> None:
         b.copy_content(groups)
         b.copy_text(groups, all_mods)
         sql, defs = b.rules()
+        check_rule_proofs(sql, b.w)
         if args.probe:
             probe_defs, probe_sql, probe_units = probe_modifiers(args.probe)
             defs += probe_defs
@@ -1338,7 +1460,7 @@ def main() -> None:
     for f in ("ca-civ-age.js", "ca-tree-layout.js"):
         shutil.copyfile(Path(__file__).parent / "ui" / f, OUT / "ui" / f)
     if args.checks:
-        for f in ("ca-checks.js", "ca-automation.js", "ca-ui-test.js"):
+        for f in ("ca-checks.js", "ca-automation.js", "ca-ui-test.js", "ca-live.js"):
             shutil.copyfile(Path(__file__).parent / "checks" / f, OUT / "ui" / f)
         # The check of rule 2i needs the gap pairs (the rows are gone from the game's UnitReplaces).
         checks_js = OUT / "ui" / "ca-checks.js"
@@ -1353,7 +1475,8 @@ def main() -> None:
         if args.probe:
             text = text.replace(probe_marker, f"const CA_PROBE = {json.dumps({'name': args.probe, 'items': probe_modifiers(args.probe)[2]})};")
         checks_js.write_text(text, encoding="utf-8")
-    (OUT / f"{MOD_ID}.modinfo").write_text(modinfo_xml(builds, args.checks, args.fast_test, game), encoding="utf-8")
+    (OUT / f"{MOD_ID}.modinfo").write_text(control_modinfo_xml(args.age_points) if args.control else
+                                            modinfo_xml(builds, args.checks, args.fast_test, game), encoding="utf-8")
 
     # Validate each world age: base modules + DLC + the mod, in load order.
     summary = []

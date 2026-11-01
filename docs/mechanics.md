@@ -114,7 +114,10 @@ No city becomes a town, and gold and influence are not capped.
 
 ### Resources
 
-- Resources of an earlier age stay on the map.
+- Resources of an earlier age stay on the map. One exception, as in the base game: at the Exploration
+  transition, the game replaces some resources on islands with treasure resources (1 to 18 plots in the
+  test runs), because treasure fleets are a world system of the Exploration age. The test runs check that no
+  other resource leaves the map (`RESOURCES` against `RELOADRES`).
 - New-age resources do not replace a tile that has a district or an improvement. Without this rule,
   the transition removed improvements and districts.
 - On the Earth map, the generic resource step is used. The Earth map's own step removed rural
@@ -129,8 +132,12 @@ No city becomes a town, and gold and influence are not capped.
 
 ### Governments
 
-At a world transition, the government choice lists the governments of the new world age, as in the
-base game.
+At a world transition, every civ takes a government of the new world age, as in the base game: the
+government choice lists only the world age's governments, and the AI takes one of them too. Up to version
+0.3.0 the AI often kept or took a government of another age, because the mod loads the governments of all
+ages and the AI follows its civ's favourite government (for example Egypt kept Oligarchy in the Modern
+world, and a Time-Tested Mughal took Bureaucratic Monarchy in Antiquity). The test runs check it
+(`GOV-AGE`).
 
 ### Legacy cards
 

@@ -302,6 +302,30 @@ def replace_starts(qfile: Path, players: list) -> tuple[list[str], bool]:
     return lines + [""], failed
 
 
+def gov_report(players: list) -> tuple[list[str], bool]:
+    """Rule 3: a civ's government is one of the world age's (as in the base game, where each world offers only its
+    own; the base game's StartingGovernments of each world give a government's age). Governments that no world
+    offers at the start (Revolución and others set by effects) are not checked. Before the fix of the AI's
+    government biases, every run had a civ with an older-age government (105 of 105 runs; 20261029-202958:
+    Egypt kept Oligarchy in the Modern world)."""
+    age_of = {}  # government -> the worlds that offer it (one government can be offered in more than one)
+    for w in ("AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"):
+        for (g,) in c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True).db.execute(
+                "SELECT GovernmentType FROM StartingGovernments WHERE AgeType = ?", (w,)):
+            age_of.setdefault(g.replace("GOVERNMENT_", ""), set()).add(w)
+    wrong = {}
+    for p in players:
+        gov, world = p.get("gov"), p.get("age")
+        if gov and world and gov in age_of and world not in age_of[gov]:
+            wrong.setdefault((world, p["id"], p.get("civ"), gov), p["turn"])
+    lines = ["## Governments of the world age (rule 3)", ""]
+    if not wrong:
+        return lines + ["- every civ has a government of its world age (or one set by an effect)", ""], False
+    lines += [f"- GOV-AGE FAIL: {w}, player {pid} ({civ}) has {gov} ({', '.join(sorted(age_of[gov]))}) from turn {t}"
+              for (w, pid, civ, gov), t in sorted(wrong.items(), key=lambda x: (str(x[0][0]), x[0][1]))[:20]]
+    return lines + [""], True
+
+
 def bank_report(banks: list) -> tuple[list[str], bool]:
     """Hidden culture and science (BANK records): yield that no node took, paid out one node per turn. A bank
     that grows at 3 checks in a row past 3 turns of yield means a tree with no next node for the civ (the
@@ -329,6 +353,421 @@ def bank_report(banks: list) -> tuple[list[str], bool]:
     if len(lines) == 4:
         lines.append("| all | - | - | under one turn of yield | - | no |")
     return lines + [""], failed
+
+
+# Catch-up Research (CATCHUP records): the bonus of each setting, the window around the expected speed and the
+# samples a group needs. Medians of the 33 runs with node records (20261025-170959 to 20261031-132723, 217 groups
+# of 5 samples or more): speed 0.98 to 1.08 where 1x is
+# expected (option off, and nodes of the world age), 2.05 and 2.12 at +100%, 1.52 and 1.56 at +50%; costs exactly
+# 0.50, 0.67 or 1.00 of the base. The window keeps every real group and fails a wrong level: 1.5x where 2x is
+# expected is 0.75, 2x where 1.5x is expected 1.33, 1.5x where 1x is expected 1.5. Groups of 3 samples were
+# dominated by a hidden culture bank (7.58 in 20261029-141650, a 0.2.1 save), so a group needs 5.
+CATCHUP_BONUS = {"CA_CATCHUP_100": 1.0, "CA_CATCHUP_50": 0.5, "CA_CATCHUP_OFF": 0.0, "null": 0.0, "None": 0.0}
+CATCHUP_WINDOW = (0.85, 1.20)
+CATCHUP_MIN_SAMPLES = 5
+
+
+def catchup_report(recs: list) -> tuple[list[str], bool]:
+    """Catch-up Research (docs/settings.md), from the CATCHUP records (one per civ, check and node group). The game
+    shows the bonus in the cost (getNodeCost; the effect of System of Ideas), not in the turns, so each sample gives:
+      rate:  (cost - progress) / (turns - 0.5) / yield, about 1: the turns follow the cost shown. getTurnsForNode is
+             a ceiling, so the true turns lie in (turns - 1, turns]; the midpoint removes the bias (the plain ratio
+             had medians 0.84 to 1.03, the midpoint 0.97 to 1.11, in 227 groups of 33 runs). Turns 0 and 1 say
+             nothing of the rate (a hidden bank, docs/known-limits.md, or the last turn): left out.
+      cost:  cost / base cost; the base is the node's cost in this run where no bonus applies (a world of the
+             node's age or earlier). Depth 0 only: mastery costs differ between civs (79 and 93 with the option off,
+             20261029-142802). Future Tech is left out: its cost grows with each repeat.
+      speed: rate * base / cost, the research speed against the base cost. Expected: 1 + bonus for nodes of the
+             earlier ages and the Breakthroughs into the world age (they count as the age before), else 1.
+    FAIL when a group's median speed is outside CATCHUP_WINDOW times the expected speed. A group without a base
+    cost in the run (a run from a save) is listed, not judged."""
+    worlds = {"AGE_ANTIQUITY": 0, "AGE_EXPLORATION": 1, "AGE_MODERN": 2}
+    med = lambda v: (sorted(v)[(len(v) - 1) // 2] + sorted(v)[len(v) // 2]) / 2
+    def node_age(group, n):
+        if group.endswith(" gate"):
+            return 0 if "EXPLORATION" in n else 1  # a Breakthrough belongs to the age before it
+        return AGE_RANK.get(group.split()[-1])
+    samples = []
+    for r in recs:
+        w = worlds.get(r.get("age"))
+        if w is None or not isinstance(r.get("nodes"), dict):
+            continue  # older format (a cut line, or no node list)
+        for group, items in r["nodes"].items():
+            kind = group.split()[0]
+            y = r.get("science") if kind == "tech" else r.get("culture")
+            for s in items if isinstance(items, list) else []:
+                a = node_age(group, s.get("n", ""))
+                if a is None or "FUTURE" in s.get("n", "") or not isinstance(s.get("cost"), (int, float)) or s["cost"] <= 0:
+                    continue
+                samples.append((r["age"], w, kind, a, s, y, str(r.get("setting"))))
+    if not samples:
+        return ["## Catch-up Research (CATCHUP)", "", "- no CATCHUP records with node lists: not checked", ""], False
+    base = {}
+    for _, w, _, a, s, _, _ in samples:
+        if a >= w and s.get("d") == 0:
+            base.setdefault(s["n"], []).append(s["cost"])
+    base = {n: med(v) for n, v in base.items()}
+    groups = {}
+    for age, w, kind, a, s, y, setting in samples:
+        e = groups.setdefault((w, age, a < w, kind), {"settings": set(), "rate": [], "cost": [], "speed": []})
+        e["settings"].add(setting)
+        turns = s.get("turns")
+        rate = None
+        if isinstance(turns, (int, float)) and turns >= 2 and isinstance(y, (int, float)) and y > 0:
+            rate = (s["cost"] - (s.get("prog") or 0)) / (turns - 0.5) / y
+            e["rate"].append(rate)
+        b = base.get(s["n"]) if s.get("d") == 0 else None
+        if b:
+            e["cost"].append(s["cost"] / b)
+            if rate is not None:
+                e["speed"].append(rate * b / s["cost"])
+    lines = ["## Catch-up Research (CATCHUP)", "",
+             "Research speed against the base cost, by node group (medians). Rate: (cost - progress) / (turns - 0.5) / yield; "
+             "cost: against the node's cost where no bonus applies; speed: rate times base / cost. Expected: 1 + bonus "
+             f"for earlier-age nodes and the Breakthroughs into the world age, else 1; window {CATCHUP_WINDOW[0]} to "
+             f"{CATCHUP_WINDOW[1]} of the expected value, at least {CATCHUP_MIN_SAMPLES} samples.", "",
+             "| World age | Nodes | Setting | Expected | Samples (rate, speed) | Rate | Cost / base | Speed | Result |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    failed = False
+    for (w, age, earlier, kind), e in sorted(groups.items(), key=lambda x: (x[0][0], not x[0][2], x[0][3])):
+        bonuses = {CATCHUP_BONUS.get(s) for s in e["settings"]}
+        bonus = next(iter(bonuses)) if len(bonuses) == 1 else None
+        nodes = f"{kind}s of earlier ages, Breakthroughs into this age" if earlier else f"{kind}s of this age and later"
+        want = None if bonus is None else (1 + bonus if earlier else 1.0)
+        fmt = lambda v, d=2: f"{med(v):.{d}f}" if v else "-"
+        if want is None:
+            result = f"not judged (setting {', '.join(sorted(e['settings']))})"
+        elif len(e["speed"]) < CATCHUP_MIN_SAMPLES:
+            result = "not judged (" + ("no base cost in this run" if e["rate"] and not e["cost"] else "too few samples") + ")"
+        else:
+            ratio = med(e["speed"]) / want
+            bad = not (CATCHUP_WINDOW[0] <= ratio <= CATCHUP_WINDOW[1])
+            failed |= bad
+            result = f"FAIL ({ratio:.2f} of expected)" if bad else "ok"
+        lines.append(f"| {age} | {nodes} | {', '.join(sorted(e['settings']))} | {want if want is not None else '-'} | "
+                     f"{len(e['rate'])}, {len(e['speed'])} | {fmt(e['rate'])} | {fmt(e['cost'])} | {fmt(e['speed'])} | {result} |")
+    return lines + [""], failed
+
+
+# The civ age banner's age names (English text of GameInfo.Ages; another language is listed, not compared).
+BANNER_AGES = {"Antiquity": "AQ", "Exploration": "EX", "Modern": "MO"}
+
+
+def banner_report(checks: list[str]) -> tuple[list[str], bool]:
+    """The civ age banner (ui/ca-civ-age.js) shows the local player's civ age and the world age, and logs a line
+    when its text changes. Each shown text is compared with that player's PLAYER records while it is shown; when the
+    banner is hidden at once (autoplay: the observer, local player -1, takes over a moment after each load) it is
+    compared with the player's next check in the same world. A mismatch at two comparisons in a row fails; one
+    alone is a lag (the banner updates every 3 seconds and at each turn, the checks every 5 turns)."""
+    rx = re.compile(r"civ age banner(?:, player (\d+): [^:]*: (.+?) \S [^:]*: (.+?)\s*$| hidden)")
+    worlds = {"AQ": "AGE_ANTIQUITY", "EX": "AGE_EXPLORATION", "MO": "AGE_MODERN"}
+    events, hidden, unknown = [], 0, 0
+    for l in checks:
+        if not l.startswith("UI.log: "):
+            continue
+        m = rx.search(l) if "[CA-CHECK][UI] civ age banner" in l else None
+        if m and m.group(1) is None:
+            hidden += 1
+            events.append(("hidden",))
+        elif m:
+            civ, world = BANNER_AGES.get(m.group(2)), BANNER_AGES.get(m.group(3))
+            unknown += civ is None or world is None
+            events.append(("banner", int(m.group(1)), civ, world))
+        elif "[CA-CHECK][PLAYER] " in l:
+            try:
+                events.append(("player", json.loads(l.split("[CA-CHECK][PLAYER] ", 1)[1], strict=False)))
+            except json.JSONDecodeError:
+                pass
+    shown = [(i, e) for i, e in enumerate(events) if e[0] == "banner"]
+    lines = ["## Civ age banner (local player)", ""]
+    if not shown:
+        return lines + ["- no banner text in this run (no local player)", ""], False
+    comps, inside_n, after_n = {}, 0, 0
+    for i, (_, pid, civ, world) in shown:
+        if civ is None or world is None:
+            continue
+        inside = []
+        for f in events[i + 1:]:
+            if f[0] != "player":
+                break
+            if f[1].get("id") == pid:
+                inside.append(f[1])
+        inside_n += len(inside)
+        if not inside:
+            nxt = next((f[1] for f in events[i + 1:] if f[0] == "player" and f[1].get("id") == pid), None)
+            if nxt and nxt.get("age") == worlds[world]:
+                inside, after_n = [nxt], after_n + 1
+        for p in inside:
+            ok = p.get("civAge") == civ and p.get("age") == worlds[world]
+            comps.setdefault(pid, []).append((ok, p.get("age"), p.get("turn"), p.get("civAge"), civ, world))
+    failed = False
+    mism = []
+    for pid, cs in comps.items():
+        for k, (ok, age, turn, civ_age, civ, world) in enumerate(cs):
+            if ok:
+                continue
+            twice = (k > 0 and not cs[k - 1][0]) or (k + 1 < len(cs) and not cs[k + 1][0])
+            failed |= twice
+            mism.append(f"- {'BANNER FAIL' if twice else 'banner lag'}: player {pid}, {age} turn {turn}: the check says civ age "
+                        f"{civ_age}; the banner shows civ age {civ}, world {world}")
+    total = sum(len(cs) for cs in comps.values())
+    lines += [f"- banner texts: {len(shown)} (players {', '.join(str(p) for p in sorted({e[1] for _, e in shown}))}); "
+              f"hidden for the observer: {hidden} times" + (f"; {unknown} with age names not in English, not compared" if unknown else ""),
+              f"- compared with the player's checks: {total} ({inside_n} while shown, {after_n} at the next check after a "
+              f"text that was hidden at once); mismatches: {len(mism)}"]
+    return lines + mism[:10] + [""], failed
+
+
+def gate_report(kind: str, recs: list) -> tuple[list[str], bool]:
+    """Later-age civics (CIVICGATE) or techs (TECHGATE) that the engine refuses although their prereqs and gate are
+    complete (stuck), or allows before the gate (leak), per world age. The in-game check logs a FAIL line too; this
+    reads the records, so that the report has the table. Stuck counts at two checks in a row of the same player in
+    one world, a record only when its control node was allowed (trusted). Runs before TECHGATE: skipped."""
+    what = {"CIVICGATE": "civics", "TECHGATE": "techs"}[kind]
+    title = f"## Later-age {what}: the engine's verdict ({kind})"
+    if not recs:
+        return [title, "", f"- no {kind} records in this run (older build): not checked", ""], False
+    order = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
+    series = {}
+    for r in recs:
+        series.setdefault((r.get("age"), r["id"]), []).append(r)
+    by_world = {}
+    for (age, pid), s in series.items():
+        s.sort(key=lambda r: r["turn"])
+        e = by_world.setdefault(age, {"players": set(), "checks": 0, "trusted": 0, "open": 0, "stuck": {}, "leak": {}})
+        e["players"].add(pid)
+        e["checks"] += len(s)
+        e["trusted"] += sum(1 for r in s if r.get("trusted", True))
+        e["open"] = max([e["open"]] + [max(len(r.get("open", [])), r.get("nOpen", 0)) for r in s])
+        # Each player and node once, with the first turn seen.
+        for a, b in zip(s, s[1:]):
+            both = {x["n"] for x in a.get("stuck", [])} & {x["n"] for x in b.get("stuck", [])}
+            for n in sorted(both) if b.get("trusted", True) else []:
+                e["stuck"].setdefault(f"player {pid} {n}", f"turns {a['turn']}, {b['turn']}")
+        for r in s:
+            leak = list(r.get("leak", [])) if r.get("trusted", True) else []
+            leak += [r["researching"]] if r.get("researching") else []
+            for n in leak:
+                e["leak"].setdefault(f"player {pid} {n}", f"turn {r['turn']}")
+    lines = [title, "", "| World age | Players | Checks (trusted) | Open later-age nodes (most at one check) | "
+                        "Stuck at two checks in a row | Leaks |", "| --- | --- | --- | --- | --- | --- |"]
+    failed = False
+    for age, e in sorted(by_world.items(), key=lambda x: order.index(x[0]) if x[0] in order else 9):
+        failed |= bool(e["stuck"] or e["leak"])
+        cell = lambda d: (f"FAIL: {'; '.join(f'{k} ({t})' for k, t in list(d.items())[:4])}"
+                          + (f" (+{len(d) - 4})" if len(d) > 4 else "")) if d else "none"
+        lines.append(f"| {age} | {len(e['players'])} | {e['checks']} ({e['trusted']}) | {e['open']} | {cell(e['stuck'])} | {cell(e['leak'])} |")
+    return lines + [""], failed
+
+
+def transition_count_report(transitions: list, expect: int | None) -> tuple[list[str], bool]:
+    """Design goal 4: the world still goes through its ages. With --expect-transitions N, a run long enough
+    for N age ends must have N TRANSITION records (the Modern age end writes one too)."""
+    n = len(transitions)
+    if expect is None:
+        return [f"- world transitions: {n} (no expected count; iterate.py --expect-transitions N)"], False
+    if n < expect:
+        return [f"- TRANSITION COUNT FAIL: {n} world transitions, expected at least {expect}"], True
+    return [f"- world transitions: {n}, expected at least {expect}"], False
+
+
+def reload_resource_batches() -> list[dict]:
+    """RELOADRES records of the transition script (Scripting.log), one batch per transition: age (the new
+    world), before (after the load) and after (after the transition step), each {type: [plots, island
+    plots]}, and the island plots that the base game's Exploration step logged as replaced in between."""
+    out = []
+    script = LOGS / "Scripting.log"
+    if not script.exists():
+        return out
+    for line in script.read_text(encoding="utf-8", errors="replace").splitlines():
+        if "[CA-CHECK][RELOADRES] " in line:
+            try:
+                r = json.loads(line.split("[CA-CHECK][RELOADRES] ", 1)[1], strict=False)
+            except json.JSONDecodeError:
+                continue  # a line cut by the log
+            when = r.get("when")
+            if when not in ("before", "after"):
+                continue
+            # A batch starts at 'before'; an 'after' without its 'before' starts one too.
+            if r.get("part", 0) == 0 and (when == "before" or not out or out[-1]["after"] is not None):
+                out.append({"age": r.get("age"), "before": None, "after": None, "replaced": 0})
+            if not out:
+                continue
+            b = out[-1]
+            b["age"] = b["age"] or r.get("age")
+            if b[when] is None:
+                b[when] = {}
+            b[when].update({p[0]: list(p[1:]) for p in r.get("plots", []) if p})
+        elif "replaceIslandResources():" in line and out and out[-1]["after"] is None:
+            # The base game's line (maps/map-utilities.js), between this transition's two records.
+            m = re.search(r"Replaced=(\d+)", line)
+            if m:
+                out[-1]["replaced"] += int(m.group(1))
+    return out
+
+
+def reload_reset_report(transitions: list, ends: list, reload_batches: list, ui_resources: list,
+                        res_batches: list) -> tuple[list[str], bool]:
+    """Design goal 1, the base game's headline resets: at each world transition, the age end (AGEEND and
+    RESOURCES, UI.log) against the reload (RELOAD and RELOADRES, written by the transition script before any
+    civ plays, so a civ's first turn cannot hide a reset). FAIL on fewer cities (a city made a town), less
+    gold or influence (a cap), or fewer plots of a resource type that was on the map (old resources removed;
+    the new age's resources only add). Fields that older runs lack are skipped."""
+    order = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
+    lines, failed = ["## No reset at the reload (design goal 1: cities, gold, influence, resources)", ""], False
+    # Both records round the balance. In the 806 civ transitions of build/iterations up to 20261031-125020,
+    # gold after the reload was never lower than at the age end (803 equal, 3 higher by 200), so 1 allows for
+    # rounding only. A cap cuts a balance to 6000 gold and 800 influence into Exploration (base game,
+    # Continuity setting, standard speed), so it shows only for a civ above that: the report gives the largest.
+    tol = 1
+    end_res = {}
+    for r in ui_resources:
+        if r.get("when") != "end":
+            continue
+        if r.get("part", 0) == 0:
+            end_res[r.get("age")] = {}
+        end_res.setdefault(r.get("age"), {}).update({p[0]: p[1] for p in r.get("plots", []) if len(p) > 1})
+    have_res = bool(ui_resources or res_batches)
+    if not have_res:
+        lines.append("- resource plots: not recorded in this run (older run)")
+
+    def plots(d, k, island=False):
+        v = d.get(k) or [0, 0]
+        return (v[1] if len(v) > 1 else 0) if island else v[0]
+    for ti, t in enumerate(transitions):
+        if t.get("from") not in order[:-1]:
+            continue  # the game ends after the last age
+        nxt = order[order.index(t["from"]) + 1]
+        lines.append(f"- {t['from']} -> {nxt}:")
+        before = {e["id"]: e for e in ends if e.get("age") == t["from"]}
+        reload = reload_batches[ti] if ti < len(reload_batches) else {}
+        n_city, n_money, top = 0, {"gold": 0, "influence": 0}, {"gold": 0, "influence": 0}
+        for pid in sorted(before):
+            b, r = before[pid], reload.get(pid)
+            if r is None:
+                continue  # the age transitions section fails a missing RELOAD record
+            if isinstance(b.get("cities"), int) and isinstance(r.get("cities"), int):
+                n_city += 1
+                cb, ca, tb, ta = b["cities"], r["cities"], b.get("towns", 0), r.get("towns", 0)
+                if ca < cb:
+                    failed = True
+                    lines.append(f"  - CITY FAIL: player {pid} cities {cb} -> {ca}, towns {tb} -> {ta} at the reload"
+                                 + (" (cities made towns)" if ta > tb else ""))
+                elif (ca, ta) != (cb, tb):
+                    what = ("new settlements" if ca + ta > cb + tb else "towns made cities" if ca + ta == cb + tb
+                            else "fewer settlements")
+                    lines.append(f"  - player {pid}: cities {cb} -> {ca}, towns {tb} -> {ta} at the reload ({what})")
+            for k in ("gold", "influence"):
+                vb, vr = b.get(k), r.get(k)
+                # -1 is the records' value when the call gave none.
+                if not isinstance(vb, (int, float)) or not isinstance(vr, (int, float)) or -1 in (vb, vr):
+                    continue
+                n_money[k] += 1
+                top[k] = max(top[k], vb)
+                if vr < vb - tol:
+                    failed = True
+                    lines.append(f"  - {k.upper()} CAP FAIL: player {pid} {k} {vb} at the age end, {vr} after the reload")
+        lines.append(f"  - cities and towns compared for {n_city} civs"
+                     + ("" if n_city else " (not in the RELOAD record: older run)"))
+        lines.append(f"  - gold compared for {n_money['gold']} civs, influence for {n_money['influence']} "
+                     f"(largest at the age end: gold {top['gold']}, influence {top['influence']})")
+        if not have_res:
+            continue
+        er = end_res.get(t["from"])
+        rb = next((x for x in res_batches if x["age"] == nxt), None)
+        if rb is None and ti < len(res_batches) and res_batches[ti]["age"] is None:
+            rb = res_batches[ti]
+        if er is None or rb is None or rb["before"] is None or rb["after"] is None:
+            failed = True
+            lines.append(f"  - RESOURCE FAIL: records missing (age end {er is not None}, after the load "
+                         f"{bool(rb and rb['before'] is not None)}, after the transition step {bool(rb and rb['after'] is not None)})")
+            continue
+        bef, aft, rep = rb["before"], rb["after"], rb["replaced"]
+        load_gone = {k: f"{v} -> {plots(bef, k)}" for k, v in er.items() if plots(bef, k) < v}
+        land = lambda d, k: plots(d, k) - plots(d, k, True)
+        land_gone = {k: f"{land(bef, k)} -> {land(aft, k)}" for k in bef if land(aft, k) < land(bef, k)}
+        island_gone = {k: plots(bef, k, True) - plots(aft, k, True) for k in bef if plots(aft, k, True) < plots(bef, k, True)}
+        if load_gone:
+            failed = True
+            lines.append(f"  - RESOURCE FAIL: fewer plots after the load than at the age end: {load_gone}")
+        if land_gone:
+            failed = True
+            lines.append(f"  - RESOURCE FAIL: fewer plots off islands after the transition step: {land_gone}")
+        # The base game's Exploration step (replaceIslandResources, MapIslandBehavior) replaces island resources
+        # with treasure resources for the treasure fleets; its log line gives how many (1 to 18 in 95 runs).
+        if island_gone and sum(island_gone.values()) <= rep:
+            lines.append(f"  - island resources: the base game's Exploration step replaced {rep} with treasure resources "
+                         f"(a world system); fewer on islands: {island_gone}")
+        elif island_gone:
+            failed = True
+            lines.append(f"  - RESOURCE FAIL: {sum(island_gone.values())} fewer island plots, the base game's step "
+                         f"replaced {rep}: {island_gone}")
+        new = sorted(set(aft) - set(er))
+        lines.append(f"  - resources: {len(er)} types, {sum(er.values())} plots at the age end; {len(aft)} types, "
+                     f"{sum(plots(aft, k) for k in aft)} plots after the reload; new types: {', '.join(new) or 'none'}")
+    return lines + [""], failed
+
+
+_LEGACY_AGES = None
+
+
+def legacy_ages() -> dict:
+    """Legacy type -> its age (Legacies.Age; each world loads only its own age's legacies)."""
+    global _LEGACY_AGES
+    if _LEGACY_AGES is None:
+        _LEGACY_AGES = {}
+        for w in ("AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"):
+            sim = c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True)
+            _LEGACY_AGES.update(dict(sim.db.execute("SELECT LegacyType, Age FROM Legacies")))
+    return _LEGACY_AGES
+
+
+def legacy_report(lfile: Path, worlds: list) -> tuple[list[str], bool]:
+    """Design goal 4, world systems wait for the world: legacies (each age's legacy rewards; Player_Legacies.csv:
+    player, turn, legacy) of a later age than the world they came in. The CSV has no age, and its turn restarts in
+    each world, so a world boundary shows only where the turn goes down: the i-th part of the log is world i or
+    a later one, up to i + (worlds - parts). A legacy fails only when it is later than every world its part can
+    be; when it is later than some of them, it is listed as not judged."""
+    if not lfile.exists() or not worlds:
+        return [], False
+    rank = {"AGE_ANTIQUITY": 0, "AGE_EXPLORATION": 1, "AGE_MODERN": 2}
+    prefix = {"LEGACY_AQ_": "AGE_ANTIQUITY", "LEGACY_EX_": "AGE_EXPLORATION", "LEGACY_MO_": "AGE_MODERN"}
+    parts, last = [], None
+    for row in csv.reader(lfile.open(encoding="utf-8", errors="replace")):
+        if len(row) < 3 or not row[1].strip().isdigit():
+            continue
+        turn, legacy = int(row[1]), re.sub(r"\(\d+\)$", "", row[2].strip())  # "LEGACY_AQ_SCIENTIFIC_4(28)"
+        if not parts or turn < last:
+            parts.append([])
+        last = turn
+        parts[-1].append((row[0].strip(), turn, legacy))
+    head = ["## Legacies by world age (design goal 4: world systems wait for the world)", ""]
+    slack = len(worlds) - len(parts)
+    if slack < 0:
+        return head + [f"- {len(parts)} parts in Player_Legacies.csv for {len(worlds)} worlds: not judged", ""], False
+    lines = head + ["| Part of the log | World | Legacies | By age |", "| --- | --- | --- | --- |"]
+    fails, unsure = [], []
+    for i, part in enumerate(parts):
+        lo, hi = worlds[i], worlds[min(len(worlds) - 1, i + slack)]
+        ages = _C()
+        for pid, turn, legacy in part:
+            a = legacy_ages().get(legacy) or next((v for p, v in prefix.items() if legacy.startswith(p)), None)
+            ages[a or "unknown"] += 1
+            if a not in rank:
+                continue
+            note = f"part {i} ({lo if lo == hi else lo + ' to ' + hi}), player {pid}, turn {turn}: {legacy}"
+            if rank[a] > rank.get(hi, 2):
+                fails.append(note)
+            elif rank[a] > rank.get(lo, 2):
+                unsure.append(note)
+        lines.append(f"| {i} | {lo if lo == hi else lo + ' to ' + hi} | {len(part)} | "
+                     f"{', '.join(f'{a} {n}' for a, n in sorted(ages.items()))} |")
+    if not parts:
+        lines.append("| - | - | 0 | - |")
+    lines.append("")
+    lines += [f"- LEGACY FAIL: a legacy of a later age than its world, {n}" for n in fails[:20]]
+    lines += [f"- not judged (the part of the log may be a later world): {n}" for n in unsure[:20]]
+    return lines + ([""] if fails or unsure else []), bool(fails)
 
 
 def production_by_world(qfile: Path, base: int = 0) -> list[str]:
@@ -441,7 +880,7 @@ def unit_classes():
     return _UNIT_CLASSES
 
 
-def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, list[str]]:
+def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transitions: int | None = None) -> tuple[bool, list[str]]:
     lines, failed = [], False
     # Automation result
     results = log_lines(r"\[PASS\]|\[FAIL\]|Autoplay Turn Limit Hit")
@@ -549,6 +988,9 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
     transitions = records("TRANSITION")
     lines += ["", "## Age transitions", "", f"- transitions started: {len(transitions)} "
               + ", ".join(f"{t['from']} (turn {t['turn']})" for t in transitions)]
+    count_lines, count_failed = transition_count_report(transitions, expect_transitions)
+    lines += count_lines
+    failed |= count_failed
     order = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
     tree_of = civic_trees() if transitions else {}
     civ_nodes = {}
@@ -798,7 +1240,14 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
                                     "SELECT CivUniqueUnitType, ReplacesUnitType FROM UnitReplaces")))
                         left = _C(lost_u)
                         converted = {}
+                        # Rule 2i removes the replace rows of its gap pairs, so the engine must not convert a kept base
+                        # unit to such a unique unit: a conversion there stays a leak (FAIL), not this known limit.
+                        if "gap_uus" not in need_cache:
+                            m_ = re.search(r"const CA_REPLACE_GAPS = (\[.*?\]);", (MOD_DIR / "ui" / "ca-checks.js").read_text(encoding="utf-8"))
+                            need_cache["gap_uus"] = {g[0].replace("UNIT_", "") for g in (json.loads(m_.group(1)) if m_ else [])}
                         for u in list(early):
+                            if u in need_cache["gap_uus"]:
+                                continue
                             base = need_cache["replaces"].get("UNIT_" + u, "").replace("UNIT_", "")
                             k = min(early[u], left.get(base, 0))
                             if k:
@@ -948,6 +1397,11 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
                 if isinstance(a.get(k), int) and isinstance(b.get(k), int) and a[k] < b[k]:
                     lines.append(f"  - lower after the transition: {k} {b[k]} -> {a[k]}")
     lines.append("")
+    # Design goal 1: the base game's resets (cities to towns, gold and influence caps, old resources removed).
+    reset_lines, reset_failed = reload_reset_report(transitions, ends, reload_batches, records("RESOURCES"),
+                                                    reload_resource_batches())
+    lines += reset_lines
+    failed |= reset_failed
     # Units held at each age end, against the civ's age then: covers every way to get a unit,
     # including upgrades (rule 2g), which the production, purchase and transition checks do not see.
     # Unique units of the civ's current civ are the half swap's conversions (known limit).
@@ -1021,9 +1475,18 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
         for p in probes:
             lines.append(f"| {p['turn']} | {p['modifier']} | {p['unit']} | {p['fromTurn']} | {json.dumps(p['query'])} | "
                          f"{json.dumps(p['canStart'])} | {p['disabled']} | {p['permanentlyDisabled']} |")
+    if players:
+        gov_lines, gov_failed = gov_report(players)
+        lines += [""] + gov_lines
+        failed |= gov_failed
     bank_lines, bank_failed = bank_report(records("BANK"))
     lines += [""] + bank_lines if bank_lines else []
     failed |= bank_failed
+    # Design goal 4: legacies of a later age than the world (the worlds in the order the checks saw them).
+    worlds_seen = list(dict.fromkeys(p.get("age") for p in players if p.get("age") in ("AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN")))
+    legacy_lines, legacy_failed = legacy_report(LOGS / "Player_Legacies.csv", worlds_seen)
+    lines += [""] + legacy_lines if legacy_lines else []
+    failed |= legacy_failed
     upgrades = records("UPGRADE")
     up_ok = {}
     for p in players:
@@ -1058,6 +1521,11 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path) -> tuple[bool, li
                          f"{cell('exists')} | {cell('other')} | {b['notListed']} | "
                          f"{aq.get('ok')} / {aq.get('noPlot')} / {aq.get('needUnlock')} | {b.get('cityBuildings')} |")
     lines.append("")
+    # Gates never stuck (CIVICGATE, TECHGATE), Catch-up Research speeds (CATCHUP), the civ age banner (UI lines).
+    for part, part_failed in (gate_report("CIVICGATE", records("CIVICGATE")), gate_report("TECHGATE", records("TECHGATE")),
+                              catchup_report(records("CATCHUP")), banner_report(checks)):
+        lines += part
+        failed |= part_failed
     # Production log: Exploration items that the AI produced
     units, buildings = exploration_items()
     first = {}
@@ -1113,6 +1581,15 @@ def main() -> int:
     ap.add_argument("--observe", choices=["OBSERVER", "NONE", "0"], default="OBSERVER",
                     help="NONE sees nothing, so the engine shows fewer moves (faster; you cannot watch)")
     ap.add_argument("--probe", default=None, help="test build with the probe's test modifiers (build_mod.py PROBES); use --observe 0")
+    ap.add_argument("--control", action="store_true",
+                    help="control run: the base game with the mod's logging only (build_mod.py --control); most checks then fail")
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                    help="a test parameter in the suite's first test, for example --set MapSeed=11 --set GameSeed=11")
+    ap.add_argument("--disable-rule", action="append", default=[],
+                    help="negative control: build without this rule (build_mod.py DISABLE_RULES); the run should fail")
+    ap.add_argument("--expect-transitions", type=int, default=None,
+                    help="fail with fewer world transitions (TRANSITION records; the Modern age end counts), "
+                         "for example 3 for the three-age suites at 700 turns")
     args = ap.parse_args()
     fast = None if args.no_fast_test else args.fast_test
 
@@ -1135,17 +1612,36 @@ def main() -> int:
     head = run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"]).stdout.strip()
     dirty = bool(run(["git", "-C", str(REPO), "status", "--porcelain", "generator"]).stdout.strip())
     print("1/3 Build and validate ...")
-    ok, build_out = build(fast, args.age_points, ["--probe", args.probe] if args.probe else None)
+    extra = (["--probe", args.probe] if args.probe else []) + [x for r in args.disable_rule for x in ("--disable-rule", r)] \
+        + (["--control"] if args.control else [])
+    ok, build_out = build(fast, args.age_points, extra or None)
     (workdir / "build.txt").write_text(build_out, encoding="utf-8")
     if not ok:
         print("Build or validation failed:\n" + build_out[-2000:])
         return 1
 
     print(f"2/3 Autoplay {args.turns} turns ...")
-    start = datetime.now()
-    res = run(["powershell", "-ExecutionPolicy", "Bypass", "-File", str(HERE / "run_autoplay.ps1"),
-               "-Turns", str(args.turns), "-TimeoutMinutes", str(args.timeout), "-ObserveAs", args.observe, "-Suite", args.suite])
-    autoplay_out = res.stdout + res.stderr
+    # About 3 of 60 games crashed in the game's audio engine in the first minutes, and a retry always ran clean
+    # (docs/known-limits.md, Open checks). A crash before turn 5 of the first world age is retried once; the report
+    # names the retry, and a second early crash counts.
+    retried = None
+    for attempt in range(2):
+        start = datetime.now()
+        res = run(["powershell", "-ExecutionPolicy", "Bypass", "-File", str(HERE / "run_autoplay.ps1"),
+                   "-Turns", str(args.turns), "-TimeoutMinutes", str(args.timeout), "-ObserveAs", args.observe, "-Suite", args.suite]
+                  + (["-Set", ";".join(args.set)] if args.set else []))
+        autoplay_out = res.stdout + res.stderr
+        snaps = [l for l in (LOGS / "UI.log").read_text(encoding="utf-8", errors="replace").splitlines()
+                 if "[CA-CHECK][SNAPSHOT]" in l] if (LOGS / "UI.log").exists() else []
+        turns = [int(m.group(1)) for l in snaps for m in [re.search(r'"turn":(\d+)', l)] if m]
+        early_crash = "CRASH" in autoplay_out and (not turns or max(turns) < 5) and len(snaps) < 3
+        if attempt == 0 and early_crash:
+            retried = f"the first attempt crashed before turn 5 (runner output: {autoplay_out.strip().splitlines()[-1][:200] if autoplay_out.strip() else ''})"
+            print(f"Early crash: retrying once ({retried})")
+            continue
+        break
+    if retried:
+        autoplay_out = f"RETRIED: {retried}\n\n" + autoplay_out
     ui_log = LOGS / "UI.log"
     if res.returncode == 2 or not ui_log.exists() or datetime.fromtimestamp(ui_log.stat().st_mtime) < start:
         # No game ran (the runner timed out waiting for the game to start): the logs are an older run's.
@@ -1155,7 +1651,7 @@ def main() -> int:
         return 2
 
     print("3/3 Analyze ...")
-    passed, lines = analyze(start, autoplay_out, workdir)
+    passed, lines = analyze(start, autoplay_out, workdir, expect_transitions=args.expect_transitions)
     header = [f"# Iteration {stamp}: {'PASS' if passed else 'FAIL'}", "",
               f"- Turns: {args.turns}; suite: {args.suite}; fast test: {fast}; autoplay exit code: {res.returncode}",
               f"- Source: hash {source_hash} (source/), git {head}{' + uncommitted changes' if dirty else ''}",

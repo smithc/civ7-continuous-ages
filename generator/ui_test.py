@@ -89,6 +89,25 @@ def joints(lines: list[dict]) -> list[dict]:
     return result
 
 
+def empty_views(tests: list[dict]) -> list[str]:
+    """What the test should have recorded but did not: no view at all, a view with no drawn line pieces at its
+    dummy cards (logDummyLines in checks/ca-ui-test.js), or a view whose hover check found no civics (logHover keeps
+    only civics with a card). Each of these passed before: the joint and hover checks pass on empty lists.
+    Real runs: 14 or 32 line pieces a view, 4 and 17 hover civics (20261027-200805 to 20261029-180644)."""
+    views = [r.get("view") for r in tests if r.get("check") == "view"]
+    problems = [] if views else ["no view recorded"]
+    for v in views:
+        pieces = sum(len(r.get("pieces") or []) for r in tests if r.get("check") == "line" and r.get("view") == v)
+        if not pieces:
+            problems.append(f"{v}: no line pieces recorded")
+        hover = [r for r in tests if r.get("check") == "hover" and r.get("view") == v]
+        if not hover:
+            problems.append(f"{v}: no hover check recorded")
+        elif not any(h.get("civics") for h in hover):
+            problems.append(f"{v}: the hover check recorded no civics")
+    return problems
+
+
 def report(out: Path, save: str, exited: bool, shots: list[str]) -> bool:
     text = (out / "UI.log").read_text(encoding="utf-8", errors="replace") if (out / "UI.log").exists() else ""
     tests = [r for k, r in records(text) if k == "UITEST"]
@@ -98,7 +117,9 @@ def report(out: Path, save: str, exited: bool, shots: list[str]) -> bool:
     js = joints(lines)
     auto = (out / "Automation.log").read_text(encoding="utf-8", errors="replace") if (out / "Automation.log").exists() else ""
     verdicts = re.findall(r"\[(PASS|FAIL)\].*", auto)
-    ok = exited and bool(shots) and not errors and all(j["ok"] for j in js) and all(not h["unmarked"] for h in hovers)
+    empty = empty_views(tests)
+    ok = (exited and bool(shots) and not errors and not empty and all(j["ok"] for j in js)
+          and all(not h["unmarked"] for h in hovers))
     md = [f"# UI test {out.name}", "", f"- Save: {save}", f"- Game exited in time: {exited}",
           f"- Automation: {', '.join(verdicts) or 'no [PASS]/[FAIL] line'}", f"- Result: {'PASS' if ok else 'FAIL'}", "",
           "## Screenshots", ""] + [f"- {s}" for s in shots] + ["", "## Line joints at dummy cards", ""]
@@ -107,6 +128,8 @@ def report(out: Path, save: str, exited: bool, shots: list[str]) -> bool:
     md += ["", "## Hover highlight", ""]
     md += [f"- {h['view']} {h['target']}: path {h['path']} nodes, civics {len(h['civics'])}, unmarked {h['unmarked'] or 'none'}"
            + ("  **FAIL**" if h["unmarked"] else "") for h in hovers] or ["- none"]
+    md += ["", "## Recorded content", ""]
+    md += [f"- {p}  **FAIL**" for p in empty] or ["- every view recorded line pieces and hover civics"]
     md += ["", "## Errors", ""] + ([f"- {e['error']}" for e in errors] or ["- none"])
     (out / "REPORT.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     print("\n".join(md))

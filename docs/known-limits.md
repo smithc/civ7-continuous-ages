@@ -19,7 +19,7 @@ reset of a civ's progress except where noted.
 | **Prereq in another tree** | The game never opens a prerequisite in another tree: a civic that needs a tech, or a civic of one civic tree that needs a civic of another, stays locked for all time. The base game has no such prerequisite (a query of the base data with all DLC finds 0). A tree's reveal requirement (`RevealRequirementSetId`) only adds a tree; it does not hide one. Evidence: iterations 20261029-141650 (civic needing a tech), 20261029-142802 (civic needing a civic of the main tree), 20261029-142316 (reveal sets). | The civic tree has its own Breakthroughs. Later-age civ trees have no prerequisite gate: unique trees show with the tech Breakthrough and Test of Time trees with the civic Breakthrough (gated reveal modifiers); branch trees keep their base-game conditions. Up to version 0.2.1, no civ could research an Exploration or Modern civic. |
 | **U-CIVTREE** (lost own civics) | A civ that keeps its civ can lose 2 to 4 completed civics of its own Antiquity civ tree at the load (for example Egypt, Greece, Han; not Persia or Rome). They become researchable again. No cause was found, and the game has no call to grant them back. | A small reset: 150 to 250 culture per civic to research them again. |
 | **U-UNIQUE-COMMANDER** | The game sometimes removes the previous civ's unique commander instead of converting it, with its promotions. | One commander lost in some transitions. |
-| **Commander conversion** | The game converts kept commanders to the new civ's unique commander (for example Army Commander to Soltan). A script cannot change a unit's type. | Cosmetic for a civ behind its gate. |
+| **Commander conversion** | Up to version 0.3.0 the game converted kept commanders to the new civ's unique commander (for example Army Commander to Soltan), also for a civ behind its gate. Every unique army commander is now a rule 2i pair: its replace row is gone, so the game has nothing to convert, and a test run fails if a kept base unit becomes a rule 2i unique unit. Other unique units that replace a unit of their own age (for example a Fleet Commander to Ottru) could still be converted; not seen in the tests. A script cannot change a unit's type. | Cosmetic. |
 | **U-POLICY-LOAD** | At the Modern load the game gives every civ the Exploration main-tree policies, earned or not; Levies and Divine Right then replace Conscription and Oratory. | Policies change, not lost. |
 | **U-GREAT-PERSON**, **U-CRISIS-UNIT** | Egypt's Tjaty great people are removed at each load. Plague Physicians end with their crisis. | As in the base game. |
 | **U-LEVY** | Independent powers research the joined tree at their own pace and can field later-age units, which a major civ can get by a levy before its own Breakthrough. | Rare (seen once, in a test with cheap techs). |
@@ -49,9 +49,10 @@ through the next world transition where there was one, and one 0.2.0 save of a h
 
 ## Not tested
 
-- **Human play at a transition.** The test runs are AI-only (autoplay plays the human slot), so the
-  screens a person uses at a world transition (civ choice, government choice, legacy cards) have not
-  been used with the mod. Please report anything wrong there.
+- **Human play at a transition.** The screens a person uses at a world transition (civ choice,
+  government choice, legacy cards) have not been used with the mod. The live tests can play a human slot,
+  but not these screens: in a test the game chooses the human's civ itself, at random (see
+  [Testing](testing.md#live-tests)). Please report anything wrong there.
 - Multiplayer.
 - A game that starts in Exploration or Modern.
 - Map scripts other than Continents and Earth.
@@ -60,18 +61,14 @@ through the next world transition where there was one, and one 0.2.0 save of a h
 
 ## Open checks
 
-- **Deep ocean for a civ behind its gate in the Antiquity world.** An engine query reported that such
-  a civ's ships could path onto deep ocean, but no unit was ever seen there in the tests, and the
-  paths went through plots the civ had not seen. The check was being made stricter when the work was
-  paused. Such a unit would take no damage: a civ behind its gate is fully protected on deep ocean.
-  The check leaves out Tonga's Tehina, which the base game lets enter deep ocean in Antiquity.
 - **An AI civ of a later age took a civ of an earlier age at a transition.** In a game with
   Time-Tested civs (iteration 20261031-121009), the AI civ Ming (an Exploration civ played in
   Antiquity) took Mississippian, an Antiquity civ, in the Exploration world. The AI mode Mirroring
   should switch to a civ of the new age or keep the civ. Not yet compared with the base game; the
   mod does not change the civ choice. The test reports it as `CIV CHOICE FAIL`.
 - **Crashes at game start.** About 3 of 60 test games crashed in the first minutes, in the game's
-  audio engine. A retry ran clean each time. No crash happened later in a game.
+  audio engine. A retry ran clean each time. No crash happened later in a game. `iterate.py` now retries
+  a run once when the game crashes before turn 5, and the report says so.
 - **Extra units for a civ that keeps its civ (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
   "legacy" civ of the new age with the Test of Time civic Syncretism (`MOD_SYNCRETISM`,
   `EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE`), with that civ's traits (`LegacyCivilizationTraits`), and
