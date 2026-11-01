@@ -163,8 +163,10 @@ Gaps to close next, most important first:
 3. **Rules 5e and 5f, positive side**: a scenario that grants a gate and checks that a later civ's ability
    turns on, and that a legacy card's node arrives.
 4. **Checks that have not failed in the game yet**: the G1 reset checks (a negative control would keep the
-   base game's `capGold` or city-to-town step), `TECHGATE`, the catch-up table and the banner comparison
-   (each failed on test input only).
+   base game's `capGold` or city-to-town step), `TECHGATE` and the banner comparison (each failed on test
+   input only; none failed in the 9 games of 20261031-144559 to 162612). The catch-up table failed in two
+   games of that set, from a check bug: the tech and civic Breakthroughs have the same record name, and
+   they shared one base cost (20261031-152452, 161244; fixed, both runs then pass on their logs).
 5. Open checks in [Known limits](known-limits.md#open-checks).
 
 ## Keeping the tests current

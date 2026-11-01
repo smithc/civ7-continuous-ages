@@ -163,10 +163,20 @@ A lock never takes away what the base game gives. A unique unit of a later age t
 unit of an earlier age (for example Mughal's Zamindar, which replaces the Settler) does not block the
 base unit before the civ's Breakthrough: the civ trains the Settler. After the Breakthrough the civ
 trains the Zamindar and not the Settler, as in the base game. Up to version 0.3.0 such a civ could
-train neither (a player report: Mughal had no Settlers in Antiquity). The rule covers 14 pairs: the
-Settler (Norman, Dai Viet, Mughal), the Merchant (Ming, Songhai, England, Qing), the Army Commander
-(Mongolia, Bulgaria, Buganda, Joseon, Qajar) and the Scout (Inca, Nepal). The generator finds the
-pairs in the game data.
+train neither (a player report: Mughal had no Settlers in Antiquity). The rule covers 9 pairs: the
+Settler (Norman, Dai Viet, Mughal), the Merchant (Ming, Songhai, England, Qing) and the Scout (Inca,
+Nepal). The generator finds the pairs in the game data.
+
+The unique army commanders (Mongolia, Bulgaria, Buganda, Joseon, Qajar) are left out. The game keeps
+commanders at a world transition. When a civ takes a new civ, the game uses the same data row to
+convert the old civ's unique commander to an Army Commander, with its promotions. Without the row,
+the game removed the commander (iterations 20261031-155019 and 161244). So these civs have no Army
+Commander before their Breakthrough, as in version 0.3.0 (see
+[Known limits](known-limits.md#engine-limits)).
+
+When a civ takes a new civ, a unit of one of the 9 pairs is not converted: the game removes it. Its
+shadow then makes the base unit (a Sokeman comes back as a Settler, a Mandarin as a Merchant), as the
+base game does for a removed unit.
 
 ## Buildings across ages
 

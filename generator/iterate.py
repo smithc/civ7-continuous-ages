@@ -111,6 +111,21 @@ def too_early(req, civ_age: str | None, civic_age: str | None = None) -> bool:
     return not ((tech is not None and tech <= AGE_RANK[civ_age]) or (civic is not None and civic <= civic_rank))
 
 
+_WORLD_UNITS = {}
+
+
+def world_unit_types(world: str) -> set:
+    """Unit types in the built mod's data for this world (U-DLC-EARLIER: a DLC civ's earlier-age units are not
+    copied into the later worlds)."""
+    if world not in _WORLD_UNITS:
+        mods = c.load_base_modules(include_dlc=True) + [c.parse_modinfo(MOD_DIR / "continuous-ages.modinfo")]
+        sim = c.Simulator()
+        for path in c.database_items(c.applicable_groups(mods, world)):
+            sim.apply_file(path)
+        _WORLD_UNITS[world] = {u for (u,) in sim.db.execute("SELECT UnitType FROM Units")}
+    return _WORLD_UNITS[world]
+
+
 def required_ages(world: str) -> dict:
     """Item -> the age it needs in the built mod for this world (0 Antiquity, 1 Exploration, 2 Modern),
     from its unlock rows; the unlocks are OR, so the earliest counts. An int is the civ age (tech
@@ -375,8 +390,10 @@ def catchup_report(recs: list) -> tuple[list[str], bool]:
              had medians 0.84 to 1.03, the midpoint 0.97 to 1.11, in 227 groups of 33 runs). Turns 0 and 1 say
              nothing of the rate (a hidden bank, docs/known-limits.md, or the last turn): left out.
       cost:  cost / base cost; the base is the node's cost in this run where no bonus applies (a world of the
-             node's age or earlier). Depth 0 only: mastery costs differ between civs (79 and 93 with the option off,
-             20261029-142802). Future Tech is left out: its cost grows with each repeat.
+             node's age or earlier), by tree and node: the tech and civic Breakthroughs have the same name in the
+             records (CA_MODERN_BREAKTHROUGH) and different costs (1740 and 1008, 20261031-152452). Depth 0 only:
+             mastery costs differ between civs (79 and 93 with the option off, 20261029-142802). Future Tech is
+             left out: its cost grows with each repeat.
       speed: rate * base / cost, the research speed against the base cost. Expected: 1 + bonus for nodes of the
              earlier ages and the Breakthroughs into the world age (they count as the age before), else 1.
     FAIL when a group's median speed is outside CATCHUP_WINDOW times the expected speed. A group without a base
@@ -403,9 +420,9 @@ def catchup_report(recs: list) -> tuple[list[str], bool]:
     if not samples:
         return ["## Catch-up Research (CATCHUP)", "", "- no CATCHUP records with node lists: not checked", ""], False
     base = {}
-    for _, w, _, a, s, _, _ in samples:
+    for _, w, kind, a, s, _, _ in samples:
         if a >= w and s.get("d") == 0:
-            base.setdefault(s["n"], []).append(s["cost"])
+            base.setdefault((kind, s["n"]), []).append(s["cost"])
     base = {n: med(v) for n, v in base.items()}
     groups = {}
     for age, w, kind, a, s, y, setting in samples:
@@ -416,7 +433,7 @@ def catchup_report(recs: list) -> tuple[list[str], bool]:
         if isinstance(turns, (int, float)) and turns >= 2 and isinstance(y, (int, float)) and y > 0:
             rate = (s["cost"] - (s.get("prog") or 0)) / (turns - 0.5) / y
             e["rate"].append(rate)
-        b = base.get(s["n"]) if s.get("d") == 0 else None
+        b = base.get((kind, s["n"])) if s.get("d") == 0 else None
         if b:
             e["cost"].append(s["cost"] / b)
             if rate is not None:
@@ -887,6 +904,11 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
     lines += ["## Automation", ""] + [f"- {r}" for r in results] + [""]
     if not any("[PASS]" in r for r in results) or any("[FAIL]" in r for r in results):
         failed = True
+    # The runner closes a game whose logs stop (run_autoplay.ps1 -StallMinutes) or that runs past the timeout.
+    for l in autoplay_out.splitlines():
+        if l.startswith("HANG:") or "Timed out: True" in l:
+            failed = True
+            lines += [f"- HANG FAIL: {l.strip()}" if l.startswith("HANG:") else f"- TIMEOUT FAIL: {l.strip()}", ""]
     # Speed: seconds per turn, from the turn-start times in the network log
     stamps = []
     net = LOGS / "net_message_debug.log"
@@ -1183,6 +1205,18 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                     lines.append(f"  - KNOWN LIMIT (U-TOT-SHADOW): {legacy_gone} legacy-civ unique units gone, "
                                  f"units off by class: more {dict(more)}, fewer {dict(fewer)}")
                     more, fewer = {}, {}
+                # Known limit (U-DLC-EARLIER, docs/known-limits.md): a DLC civ's unique units of an earlier age are
+                # not in the later worlds' data. At a civ change the game converts or removes them, and the shadow
+                # step does not see them as unique, so units come back extra (iteration 20261031-152452: Bulgaria
+                # to Prussia, 7 Boyars, 5 extra units; 121009). Only for a civ that changed, and at most as many
+                # units off, each way, as such units gone.
+                if (more or fewer) and r_units and civ_a and civ_b and civ_a != civ_b:
+                    absent = {u for u in civ_unique_units(civ_b) if "UNIT_" + u not in world_unit_types(nxt)}
+                    dlc_gone = sum(n for u, n in gone0.items() if u in absent)
+                    if dlc_gone and sum(more.values()) <= dlc_gone and sum(fewer.values()) <= dlc_gone:
+                        lines.append(f"  - KNOWN LIMIT (U-DLC-EARLIER): {dlc_gone} unique units of {civ_b} not in the "
+                                     f"{nxt} data gone, units off by class: more {dict(more)}, fewer {dict(fewer)}")
+                        more, fewer = {}, {}
                 if more:
                     failed = True
                     lines.append(f"  - DUPLICATE FAIL: military units more {when}, by class: {more}")
@@ -1195,7 +1229,9 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                 if lost_u:
                     lines.append(f"  - units gone {when}: {dict(lost_u)}")
                 # Civilian and support units by type too. Known limit (U-GREAT-PERSON): the engine removes
-                # Egypt's Tjaty great people at each load (iterations 20261025-012715, 012845, 010211).
+                # every great person at each load (TypeTags UNIT_CLASS_GREATPERSON; Unit_TransitionRetains keeps
+                # commanders only): Egypt's Tjaty (iterations 20261025-012715, 012845, 010211), Pizarro and
+                # Cortes (20261031-153836, 155019), Alim al-Shaybani for a civ that kept its civ (155901).
                 # Not a loss: a base unit converted to the new civ's unique version (Army Commander -> Soltan).
                 converted_from = _C()
                 for v, n in new_u.items():
@@ -1211,7 +1247,13 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                 # converting it to the base commander, with both transition settings (iterations
                 # 20261025-020933 and 023852: Noyan, with its promotion; in others it became an Army Commander).
                 commanders = {"ARMY_COMMANDER", "FLEET_COMMANDER", "AERODROME_COMMANDER", "SQUADRON_COMMANDER"}
-                known_civil = {u: n for u, n in lost_civil.items() if u.startswith("TJATY") or u == "PHYSICIAN"
+                if "great_people" not in need_cache:
+                    need_cache["great_people"] = set()
+                    for w in order:
+                        sim = c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True)
+                        need_cache["great_people"] |= {t.replace("UNIT_", "", 1) for (t,) in sim.db.execute(
+                            "SELECT Type FROM TypeTags WHERE Tag = 'UNIT_CLASS_GREATPERSON'")}
+                known_civil = {u: n for u, n in lost_civil.items() if u in need_cache["great_people"] or u == "PHYSICIAN"
                                or need_cache["replaces"].get("UNIT_" + u, "").replace("UNIT_", "") in commanders}
                 rest_civil = {u: n for u, n in lost_civil.items() if u not in known_civil}
                 if known_civil:

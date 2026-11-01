@@ -35,7 +35,7 @@ your game is somewhere else.
 | `generator/live.py` | Live tests: starts a game for a script, runs JavaScript in the game through the UI debugger (port 9444), runs scenario files and writes `build/scenarios/<time>/REPORT.md` (see [Testing](testing.md#live-tests)). |
 | `generator/scenarios/` | Scenario tests for `live.py` (`scenarios.json` lists them) and probe scenarios. |
 | `generator/ui_test.py` | UI test in the game: loads a save, runs `checks/ca-ui-test.js`, takes screenshots and checks the civic tree lines and hover highlight (see [UI test](#ui-test)). |
-| `generator/run_autoplay.ps1` | Starts the game with an autoplay suite and waits for it to end. |
+| `generator/run_autoplay.ps1` | Starts the game with an autoplay suite and waits for it to end. It closes the game it started if `UI.log` and `RandCalls.csv` have not changed for 10 minutes (`-StallMinutes`); the report then says `HANG FAIL`. |
 | `generator/autoplay/` | Autoplay suites. |
 | `generator/tools/crashstack.py` | Names the game frames of a crash dump's stack. |
 | `generator/tools/screenshot.py` | Screenshot of the primary screen as PNG (standard library only). |

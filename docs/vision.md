@@ -49,8 +49,8 @@ comes, nothing resets: units, techs, civics, cities, buildings, gold and policie
 | **Civ age** | Each civ's own age. It starts in Antiquity and moves forward when the civ researches a Breakthrough tech. It controls the civ's tech content, units, civ abilities and unique items. |
 | **Breakthrough** | Two new techs in the joined tech tree (the Exploration Breakthrough and the Modern Breakthrough), and two new civics of the same names in the joined civic tree. A tech Breakthrough is the gate to the next age's techs and content; a civic Breakthrough is the gate to the next age's civics and what they unlock. |
 | **Joined trees** | The techs of all three ages form one tech tree, and the main civics form one civic tree. Research is never reset, because the tree is the same in every world age. |
-| **Content** | What a civ researches, builds or uses: techs, civics, units, buildings, improvements, governments, traditions, great people, civ abilities and unique items. Content from all ages is loaded in every world age and locked per civ by its Breakthroughs. |
-| **Systems** | Mechanics that the world sets up: crises, legacy paths and triumphs, treasure fleets, the Distant Lands, independent powers, discoveries, victories. Systems stay with their world age. |
+| **Content** | What a civ researches, builds or uses: techs, civics, units, buildings, improvements, traditions, great people, civ abilities and unique items. Content from all ages is loaded in every world age and locked per civ by its Breakthroughs. |
+| **Systems** | Mechanics that the world sets up: crises, legacy paths and triumphs, treasure fleets, the Distant Lands, independent powers, discoveries, victories, and the governments offered at a world transition. Systems stay with their world age. |
 
 The split between content and systems is the core rule of the mod. Content follows the civ. Systems
 follow the world. Systems need setup that the game does only at a world transition (for example the
@@ -63,6 +63,8 @@ Distant Lands for treasure fleets), so they cannot start early for one civ.
   give a civ a node of an age it has not entered, see [Mechanics](mechanics.md#legacy-cards)).
 - The civ choice at a world transition. The game still decides it (see
   [Civs and ages](civs-and-ages.md#the-civ-choice-at-a-world-transition)).
+- The government choice at a world transition. Every civ, human or AI, takes a government of the new
+  world age, as in the base game, whatever its own age (see [Mechanics](mechanics.md#governments)).
 - Combat, yields, costs and the AI. The tech and civic costs are the base game's costs.
 
 ## Effect on play

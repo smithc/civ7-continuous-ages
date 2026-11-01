@@ -1208,18 +1208,25 @@ def replace_gaps(sims: dict, civ_content: dict) -> list[tuple[str, str, str, str
     unit for the civ at all times (the table has no condition), so the civ had neither unit: Mughal had no
     Settler in Antiquity (Zamindar; a player report of 2026-10-30), Mongolia no Army Commander before its
     Breakthrough (Noyan; 34 runs). Rows where the base unit is of the unique unit's age are not gaps.
+    Left out: pairs whose base unit the game keeps at a transition (Unit_TransitionRetains: the commanders).
+    Such a unit leaves no shadow; at a civ change the game converts the old civ's unique commander to the base
+    commander through the UnitReplaces row, with its promotions. Without the row the game removed it (Noyan
+    lost in 20261031-155019 and 161244; converted in 23 of 26 transitions before rule 2i). So these civs keep
+    the 0.3.0 behavior: no base commander before the gate (docs/known-limits.md, U-COMMANDER-GAP).
     sims: the base game with DLC (no mod) per age."""
     first_age = {}
+    retained = set()
     for age in AGES:
         for (unit,) in sims[age].db.execute("SELECT UnitType FROM Units"):
             first_age.setdefault(unit, age)
+        retained |= {u for (u,) in sims[age].db.execute("SELECT UnitType FROM Unit_TransitionRetains")}
     out = []
     for age in GATES:
         gated = set(civ_content[age]["items"]["KIND_UNIT"])
         for uu, base, trait in sims[age].db.execute(
                 "SELECT r.CivUniqueUnitType, r.ReplacesUnitType, u.TraitType FROM UnitReplaces r "
                 "JOIN Units u ON u.UnitType = r.CivUniqueUnitType ORDER BY r.CivUniqueUnitType"):
-            if uu in gated and trait and later(age, first_age.get(base, age)):
+            if uu in gated and trait and later(age, first_age.get(base, age)) and base not in retained:
                 out.append((uu, base, trait, age))
     return sorted(set(out))
 

@@ -58,11 +58,16 @@ What the civ gets at once is the new civ's **name**, and the game converts some 
 civ's unique versions. This is called the "half swap".
 
 A unique unit that waits for the Breakthrough does not block the base unit of an earlier age that it
-replaces. For example, a civ that takes Mongolia behind its gate still trains Army Commanders until it
-researches the Exploration Breakthrough; then it trains the Noyan instead (see
+replaces. For example, a civ that takes the Mughal civ behind its gate still trains Settlers until it
+researches the Modern Breakthrough; then it trains the Zamindar instead (see
 [Mechanics](mechanics.md#content-locked-by-civ-age)). For these units the game also no longer converts
-kept units to the unique version. Up to version 0.3.0 such a civ could train neither unit: in 34 test
-games, Greece took Mongolia behind its gate and had no Army Commander until its Breakthrough.
+kept units to the unique version. Up to version 0.3.0 such a civ could train neither unit.
+
+The unique army commanders are the exception (Mongolia's Noyan, and those of Bulgaria, Buganda, Joseon
+and Qajar). They still block the Army Commander before the civ's Breakthrough, as in version 0.3.0:
+in 34 test games, Greece took Mongolia behind its gate and had no Army Commander until its
+Breakthrough. The same data row lets the game convert the unique commander to an Army Commander, with
+its promotions, when the civ later takes a new civ. Without the row the commander was lost.
 
 ### Keeping your civ (Test of Time)
 

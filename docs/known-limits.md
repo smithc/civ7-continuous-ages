@@ -15,13 +15,14 @@ reset of a civ's progress except where noted.
 
 | Name | What happens | Effect |
 | --- | --- | --- |
-| **Half swap** | A civ behind its Breakthrough can take a new civ at a world transition (the game's choice). It gets the new name, and the game converts some kept units to the new civ's unique versions. The new civ's unique civic tree, abilities and unique items without a base-game unlock wait for the civ's Breakthrough. A unique unit that replaces a base unit of an earlier age (Settler, Merchant, Army Commander, Scout) no longer blocks that base unit before the Breakthrough; up to version 0.3.0 it did, and the civ had neither unit. | Mostly cosmetic. Avoid it by keeping your civ, or with the AI option Persistence ([Settings](settings.md)). |
+| **Half swap** | A civ behind its Breakthrough can take a new civ at a world transition (the game's choice). It gets the new name, and the game converts some kept units to the new civ's unique versions. The new civ's unique civic tree, abilities and unique items without a base-game unlock wait for the civ's Breakthrough. A unique unit that replaces a base unit of an earlier age (Settler, Merchant, Scout) no longer blocks that base unit before the Breakthrough; up to version 0.3.0 it did, and the civ had neither unit. Unique army commanders still do (see U-COMMANDER-GAP). | Mostly cosmetic. Avoid it by keeping your civ, or with the AI option Persistence ([Settings](settings.md)). |
 | **Prereq in another tree** | The game never opens a prerequisite in another tree: a civic that needs a tech, or a civic of one civic tree that needs a civic of another, stays locked for all time. The base game has no such prerequisite (a query of the base data with all DLC finds 0). A tree's reveal requirement (`RevealRequirementSetId`) only adds a tree; it does not hide one. Evidence: iterations 20261029-141650 (civic needing a tech), 20261029-142802 (civic needing a civic of the main tree), 20261029-142316 (reveal sets). | The civic tree has its own Breakthroughs. Later-age civ trees have no prerequisite gate: unique trees show with the tech Breakthrough and Test of Time trees with the civic Breakthrough (gated reveal modifiers); branch trees keep their base-game conditions. Up to version 0.2.1, no civ could research an Exploration or Modern civic. |
 | **U-CIVTREE** (lost own civics) | A civ that keeps its civ can lose 2 to 4 completed civics of its own Antiquity civ tree at the load (for example Egypt, Greece, Han; not Persia or Rome). They become researchable again. No cause was found, and the game has no call to grant them back. | A small reset: 150 to 250 culture per civic to research them again. |
 | **U-UNIQUE-COMMANDER** | The game sometimes removes the previous civ's unique commander instead of converting it, with its promotions. | One commander lost in some transitions. |
-| **Commander conversion** | Up to version 0.3.0 the game converted kept commanders to the new civ's unique commander (for example Army Commander to Soltan), also for a civ behind its gate. Every unique army commander is now a rule 2i pair: its replace row is gone, so the game has nothing to convert, and a test run fails if a kept base unit becomes a rule 2i unique unit. Other unique units that replace a unit of their own age (for example a Fleet Commander to Ottru) could still be converted; not seen in the tests. A script cannot change a unit's type. | Cosmetic. |
+| **Commander conversion** | The game converts kept commanders to the new civ's unique commander (for example Army Commander to Soltan), also for a civ behind its gate. A script cannot change a unit's type. A test run fails if a kept base unit becomes the unique unit of a rule 2i pair (Settler, Merchant, Scout): those rows are gone, so the game has nothing to convert. | Cosmetic. |
+| **U-COMMANDER-GAP** | A civ whose unique commander replaces the Army Commander (Mongolia, Bulgaria, Buganda, Joseon, Qajar) cannot train an Army Commander before its Breakthrough, as in version 0.3.0. The data row that blocks it (`UnitReplaces`, which has no condition) also lets the game convert the unique commander to an Army Commander, with its promotions, when the civ takes a new civ. A test build without the row lost the commander at each such change (iterations 20261031-155019 and 161244: Noyan; before, it was converted in 23 of 26 transitions). | The civ's armies wait for its Breakthrough or the unique commander. |
 | **U-POLICY-LOAD** | At the Modern load the game gives every civ the Exploration main-tree policies, earned or not; Levies and Divine Right then replace Conscription and Oratory. | Policies change, not lost. |
-| **U-GREAT-PERSON**, **U-CRISIS-UNIT** | Egypt's Tjaty great people are removed at each load. Plague Physicians end with their crisis. | As in the base game. |
+| **U-GREAT-PERSON**, **U-CRISIS-UNIT** | Every great person is removed at each load, also for a civ that keeps its civ: Egypt's Tjaty, Spain's conquistadors, Abbasid's Alim al-Shaybani (iterations 20261031-153836, 155019, 155901). The base game keeps only commanders (`Unit_TransitionRetains`). Plague Physicians end with their crisis. | As in the base game. |
 | **U-LEVY** | Independent powers research the joined tree at their own pace and can field later-age units, which a major civ can get by a levy before its own Breakthrough. | Rare (seen once, in a test with cheap techs). |
 
 ## Updating a game in progress (from 0.2.1)
@@ -69,6 +70,13 @@ through the next world transition where there was one, and one 0.2.0 save of a h
 - **Crashes at game start.** About 3 of 60 test games crashed in the first minutes, in the game's
   audio engine. A retry ran clean each time. No crash happened later in a game. `iterate.py` now retries
   a run once when the game crashes before turn 5, and the report says so.
+- **One hang in 146 test games.** Iteration 20261031-162612 (one human slot, observed as player 0)
+  stopped at the start of Modern turn 2, in the turn of player 0. No log changed for 26 minutes, no
+  player had an active turn, the game used about 9 cores, and the UI still answered. An exact repeat
+  (the same build and seed, iteration 20261031-174104 in a worktree at commit 55a94c4) wrote the same
+  logs line for line up to that point, then played on. So the game data and the mod's rules, which are
+  deterministic, do not cause it; a timing race in the game is likely. Not seen again. The test runner
+  now closes a game whose logs have not changed for 10 minutes, and the report says `HANG FAIL`.
 - **Extra units for a civ that keeps its civ (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
   "legacy" civ of the new age with the Test of Time civic Syncretism (`MOD_SYNCRETISM`,
   `EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE`), with that civ's traits (`LegacyCivilizationTraits`), and
@@ -93,9 +101,12 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   At the transition the game replaces such a unit, and an extra unit can come back. Iteration
   20261029-204508: Assyria (to Inca) had one Magarru and got a Courser and a Horseman. Iteration
   20261031-121009: Bulgaria (to Prussia) had one Boyar; the Modern world has no Boyar data, so the
-  shadow step did not see it as a unique unit and made an extra Mortar (`DUPLICATE FAIL`). Other DLC
-  content of an earlier age (unique buildings, civic trees) was not checked. To be fixed in a later
-  version: copy the DLC content of the other ages too.
+  shadow step did not see it as a unique unit and made an extra Mortar. Iteration 20261031-152452:
+  Bulgaria (to Prussia) had 7 Boyars and got 5 extra units. The test report names this case as
+  `KNOWN LIMIT (U-DLC-EARLIER)`, only for a civ that changed civ and only up to the number of such
+  unique units gone, so any other duplicate still fails. Other DLC content of an earlier age (unique
+  buildings, civic trees) was not checked. To be fixed in a later version: copy the DLC content of the
+  other ages too.
 
 ## Ideas not built
 

@@ -21,7 +21,11 @@ param(
     # Suite file in the autoplay folder. ContinuousAgesTransition.json continues through age transitions.
     [string]$Suite = 'ContinuousAgesAutoplay.json',
     # Test parameters to set in the suite's first test, as "Key=Value;Key=Value" (for example "MapSeed=11;GameSeed=11").
-    [string]$Set = ''
+    [string]$Set = '',
+    # A hang: the game runs, but UI.log and RandCalls.csv have not changed for this many minutes. The runner
+    # then closes the game it started and exits with code 4 (iteration 20261031-162612: no log change for
+    # 26 minutes at Modern turn 2; the runner waited for the full timeout). 0 turns the check off.
+    [int]$StallMinutes = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,8 +70,22 @@ while (-not $proc -and (Get-Date) -lt $start.AddMinutes(3)) {
     $proc = Get-Process -Name 'Civ7_Win64_*' -ErrorAction SilentlyContinue | Select-Object -First 1
 }
 if (-not $proc) { Write-Host 'FAIL: the game did not start within 3 minutes.'; exit 2 }
-while (-not $proc.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 15; $proc.Refresh() }
-$timedOut = -not $proc.HasExited
+$hung = $false
+$watched = @((Join-Path $logs 'UI.log'), (Join-Path $logs 'RandCalls.csv'))
+while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Seconds 15; $proc.Refresh()
+    if ($StallMinutes -gt 0 -and -not $proc.HasExited) {
+        $last = ($watched | Where-Object { Test-Path $_ } | ForEach-Object { (Get-Item $_).LastWriteTime } | Measure-Object -Maximum).Maximum
+        if ($last -and $last -gt $start -and ((Get-Date) - $last).TotalMinutes -ge $StallMinutes) {
+            Write-Host "HANG: no change in UI.log or RandCalls.csv for $StallMinutes minutes (last at $last); closing the game."
+            $hung = $true
+            $proc | Stop-Process -Confirm:$false
+            Start-Sleep -Seconds 5
+            break
+        }
+    }
+}
+$timedOut = -not $hung -and -not $proc.HasExited
 $minutes = [math]::Round(((Get-Date) - $start).TotalMinutes, 1)
 
 # Report.
@@ -80,4 +98,4 @@ Write-Host "Run time: $minutes minutes. Timed out: $timedOut"
 if ($newDumps) { Write-Host 'CRASH: new dump files:'; $newDumps | ForEach-Object { Write-Host "  $($_.FullName)" } }
 if ($results) { Write-Host 'Automation results:'; $results | ForEach-Object { Write-Host "  $($_.Filename): $($_.Line)" } }
 else { Write-Host 'No [PASS]/[FAIL] lines found in the logs written during this run.' }
-if ($newDumps) { exit 1 } elseif ($timedOut) { exit 3 } else { exit 0 }
+if ($newDumps) { exit 1 } elseif ($hung) { exit 4 } elseif ($timedOut) { exit 3 } else { exit 0 }
