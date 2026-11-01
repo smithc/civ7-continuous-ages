@@ -35,7 +35,7 @@ import classification as cls
 from build_test1 import transition_script, write_xml, EXCLUDE_PATTERNS, TEXT_EXCLUDE
 
 MOD_ID = "continuous-ages"
-MOD_VERSION = "0.3.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
+MOD_VERSION = "0.4.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
 # Plain text in the modinfo, not text keys: the Steam Workshop uploader shows the modinfo's Name and
@@ -63,10 +63,13 @@ RECOMMENDED SETTINGS
 - Start age: Antiquity.
 - AI civ selection at age transition: Mirroring (default), or Current Civilization Persistence.
 
-NEW IN 0.3.0
-- Fix: in 0.2.1 no civ could research an Exploration or Modern civic. The civic tree now has its own Breakthroughs.
-- Test of Time civic trees open with the civic Breakthrough. Syncretism (a legacy civ) needs the Breakthrough tech and works only in its own world age.
-- Games saved with 0.2.1 continue with 0.3.0. The locked civics open at once.
+NEW IN 0.4.0
+- Fix: a civ whose unique unit replaces a Settler, Merchant or Scout of an earlier age trains that unit until its Breakthrough. In 0.3.0 it could train neither (for example, Mughal had no Settlers in Antiquity).
+- Fix: in the Antiquity world, a civ past its Exploration Breakthrough can meet the civs of the Distant Lands.
+- Fix: in the Antiquity world, deep ocean damages the units of a civ past its Exploration Breakthrough until it has Shipbuilding, as in the Exploration world.
+- Fix: at a world transition, AI civs take a government of the new world age.
+- In a game started with 0.2.1, civics can finish one per turn for a while and show "0 turns": the game pays out culture it held back in 0.2.1. It ends by itself.
+- Games saved with 0.3.0 continue with 0.4.0.
 
 STATUS
 Playable, in testing. Full AI games pass all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.

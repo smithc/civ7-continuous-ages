@@ -40,11 +40,14 @@ Only a civ that still needs those techs and civics gains from it, so it helps ci
 [*][b]AI civ selection at age transition:[/b] Mirroring (default), or Current Civilization Persistence.
 [/list]
 
-[h2]New in 0.3.0[/h2]
+[h2]New in 0.4.0[/h2]
 [list]
-[*][b]Fix:[/b] in 0.2.1 no civ could research an Exploration or Modern civic. The civic tree now has its own Breakthroughs.
-[*]Test of Time civic trees open with the civic Breakthrough. Syncretism (a legacy civ) needs the Breakthrough tech and works only in its own world age.
-[*]Games saved with 0.2.1 continue with 0.3.0. The locked civics open at once.
+[*][b]Fix:[/b] a civ whose unique unit replaces a Settler, Merchant or Scout of an earlier age trains that unit until its Breakthrough. In 0.3.0 it could train neither (for example, Mughal had no Settlers in Antiquity).
+[*][b]Fix:[/b] in the Antiquity world, a civ past its Exploration Breakthrough can meet the civs of the Distant Lands.
+[*][b]Fix:[/b] in the Antiquity world, deep ocean damages the units of a civ past its Exploration Breakthrough until it has Shipbuilding, as in the Exploration world.
+[*][b]Fix:[/b] at a world transition, AI civs take a government of the new world age.
+[*]In a game started with 0.2.1, civics can finish one per turn for a while and show "0 turns": the game pays out culture it held back in 0.2.1. It ends by itself.
+[*]Games saved with 0.3.0 continue with 0.4.0.
 [/list]
 
 [h2]Status[/h2]
@@ -52,7 +55,7 @@ Playable, in testing. Full AI games pass all three ages at all four game speeds 
 
 [h2]Compatibility[/h2]
 [list]
-[*]Version 0.3.0, built for Civilization VII 1.5.0.44, with the base game and DLC civilizations.
+[*]Version 0.4.0, built for Civilization VII 1.5.0.44, with the base game and DLC civilizations.
 [*][b]Affects saved games:[/b] enable it before you start a new game. You can update the mod during a game from version 0.2.1.
 [*]Replaces the game's age transition script. Other mods that change that script will conflict.
 [*]Single player. Multiplayer is not tested.
