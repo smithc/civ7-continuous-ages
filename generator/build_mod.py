@@ -83,6 +83,7 @@ COMPATIBILITY
 Documentation, source and known limits: https://github.com/smithc/civ7-continuous-ages"""
 REPO = Path(__file__).resolve().parent.parent
 OUT = REPO / "build" / MOD_ID
+BUILD_REPORT = REPO / "build" / f"{MOD_ID}-build-report.md"  # for the developer; not in the mod folder
 MODS_DIR = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
             / "Firaxis Games" / "Sid Meier's Civilization VII" / "Mods")
 
@@ -1514,7 +1515,7 @@ def main() -> None:
     if args.package:
         bad = [b.w for b in builds if b.result["issues"] or b.result["new_fk"]]
         if bad:
-            raise SystemExit(f"Not packaged: validation issues in world {', '.join(bad)} (see the build report)")
+            raise SystemExit(f"Not packaged: validation issues in world {', '.join(bad)} (see {BUILD_REPORT})")
         print(f"Packaged {package(game)}")
     if args.install:
         for old in [MOD_ID] + OLD_MOD_IDS:
@@ -1568,8 +1569,9 @@ def package(game: Path) -> Path:
     dist.mkdir(parents=True, exist_ok=True)
     zip_path = dist / f"{MOD_ID}-{MOD_VERSION}-civ7-{version['product_version'] or 'unknown'}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        # The zip holds the whole mod folder, as the Workshop uploader does; so the build report is not in it.
         for f in sorted(OUT.rglob("*")):
-            if f.is_file() and f.relative_to(OUT) != Path("REPORT.md"):  # the build report is for the developer
+            if f.is_file():
                 z.write(f, Path(MOD_ID) / f.relative_to(OUT))
     if info["git_dirty"]:
         print("Warning: the generator has uncommitted changes (build-info.json: git_dirty)")
@@ -1609,7 +1611,9 @@ def write_report(builds) -> None:
                 ", ".join(f"{t} {n}" for t, n in sorted(sys_rows.items())), ""]
         if b.log["errors"]:
             out += ["### Errors", ""] + [f"- {f} {t}: {e}" for f, t, e in b.log["errors"][:30]] + [""]
-    (OUT / "REPORT.md").write_text("\n".join(out), encoding="utf-8")
+    # Next to the mod folder, not in it: the Workshop uploader publishes every file in the mod folder
+    # (the 0.3.0 Workshop item has the report of its build).
+    BUILD_REPORT.write_text("\n".join(out), encoding="utf-8")
 
 
 if __name__ == "__main__":

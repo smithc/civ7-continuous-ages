@@ -24,7 +24,7 @@ your game is somewhere else.
 
 | Path | Purpose |
 | --- | --- |
-| `generator/build_mod.py` | Builds the mod for the three world ages from the installed game files (`build/continuous-ages`); `--install` copies it to the game's Mods folder. |
+| `generator/build_mod.py` | Builds the mod for the three world ages from the installed game files (`build/continuous-ages`); `--install` copies it to the game's Mods folder. The build report goes to `build/continuous-ages-build-report.md`, outside the mod folder, so that it is not uploaded with the mod. |
 | `generator/build_test1.py` | The edits to the game's age transition script (`TRANSITION_EDITS`) and shared build helpers. |
 | `generator/civ7data.py` | Reads the game's modules and simulates the game database of each world age. |
 | `generator/classification.py` | Which game tables are content (loaded in every world, locked per civ) and which are systems (stay with their world age). |

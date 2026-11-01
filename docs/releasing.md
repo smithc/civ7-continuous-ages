@@ -48,11 +48,14 @@ absent), but this has not been tested. Test it on a game without DLC before the 
    `build-info.json` into the mod (mod version, game version, Steam build, DLC list, git commit) and
    writes `build/dist/continuous-ages-<mod version>-civ7-<game version>.zip`. It refuses test
    settings (`--checks`, `--fast-test`, `--age-points`) and a build with validation issues.
-   If `build-info.json` says `"git_dirty": true`, commit first and build again.
+   If `build-info.json` says `"git_dirty": true`, commit first and build again. The build report goes
+   to `build/continuous-ages-build-report.md`, not into the mod folder: the Workshop uploader publishes
+   every file in that folder (up to 0.4.0, the report was in it, and the 0.3.0 Workshop item has it).
 6. Make a GitHub release: tag `v<mod version>`, attach the zip, and in the notes give the game
    version from `build-info.json` and the main changes.
 7. Upload the same mod folder (`build/continuous-ages`, or the zip's `continuous-ages` folder) to the
-   Steam Workshop (below).
+   Steam Workshop (below). The folder must hold the same files as the zip, and no `.md` file. After the
+   tag exists, the folder must be the tagged build: a later commit on `main` does not change the release.
 8. Add a row to the [compatibility table](#compatibility-table).
 
 ### Install from the zip (for players)
