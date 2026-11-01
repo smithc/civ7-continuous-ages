@@ -205,13 +205,57 @@ def start(suite: str, sets: list[str], manual: bool = False) -> int:
     if manual:
         # LIVE_PLAIN_LAUNCH=1: without -bypassStartButton, exactly as a player starts the game.
         flags = [] if os.environ.get("LIVE_PLAIN_LAUNCH") == "1" else ["-bypassStartButton"]
-        subprocess.Popen([STEAM, "-applaunch", str(APP_ID)] + flags)
+        command = [STEAM, "-applaunch", str(APP_ID)] + flags
+        close_crash_reporter()
+        subprocess.Popen(command)
         print(f"started: main menu (manual{', plain launch' if not flags else ''})")
-        return 0
+        return 0 if note_pids(command) else 2
     path = write_suite(suite, sets)
-    subprocess.Popen([STEAM, "-applaunch", str(APP_ID), "-autojson", str(path), "-bypassStartButton"])
+    command = [STEAM, "-applaunch", str(APP_ID), "-autojson", str(path), "-bypassStartButton"]
+    close_crash_reporter()
+    subprocess.Popen(command)
     print(f"started: suite {path}")
-    return 0
+    return 0 if note_pids(command) else 2
+
+
+def close_crash_reporter() -> None:
+    """The game's crash reporter (FiraxisCrashReporter.exe, in the game's folder) counts for Steam as part of the
+    game. A reporter window left by an earlier crash keeps Steam from starting the game: Steam waits a few seconds
+    for it, then gives up without a message (Steam console log: WaitingPrevProcess, then Completed; live.py all,
+    2026-11-01, lost 4 scenarios so). The crash is already saved in packagedDumps. As run_autoplay.ps1 does,
+    close it only when no game runs."""
+    if game_pids():
+        return
+    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq FiraxisCrashReporter.exe", "/FO", "CSV", "/NH"],
+                         capture_output=True, text=True).stdout
+    for m in re.finditer(r'"FiraxisCrashReporter\.exe","(\d+)"', out):
+        subprocess.run(["taskkill", "/PID", m.group(1), "/F"], capture_output=True)
+        print(f"closed a crash reporter left by an earlier game (process {m.group(1)})")
+
+
+def note_pids(command: list | None = None, timeout: float = 180) -> bool:
+    """Waits for the game process that start() launched and keeps its id in the state file, so that quit_game()
+    can close it also when it crashes before it is ready (live.py all, 2026-11-01: a game crashed during map
+    generation and its process stayed for 22 minutes). start() refuses to run while a game runs, so a game
+    process that appears now is this tool's. With the launch command: one more launch after 60 seconds without a
+    game process (Steam can give up while the previous game's processes close)."""
+    t0 = time.time()
+    retried = command is None
+    while time.time() < t0 + timeout:
+        pids = game_pids()
+        if pids:
+            state = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
+            state["pids"] = sorted(set(state.get("pids", [])) | set(pids))
+            STATE.write_text(json.dumps(state), encoding="utf-8")
+            return True
+        if not retried and time.time() > t0 + 60:
+            retried = True
+            close_crash_reporter()
+            subprocess.Popen(command)
+            print("no game process after 60 seconds: launched again")
+        time.sleep(2)
+    print(f"the game did not start within {int(timeout)} seconds (is a Steam dialog open?)")
+    return False
 
 
 def manual() -> bool:
@@ -278,6 +322,16 @@ def wait(timeout: float, expr: str = "globalThis.caLive?.ready === true && typeo
             last = url
         except (OSError, ConnectionError, ValueError):
             last = "no endpoint yet"
+        state = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
+        mine = set(state.get("pids", []))
+        if mine and not mine & set(game_pids()):
+            print(f"the game process ended before the game was ready (a crash?); last state: {last}")
+            return False
+        # A crashed game can keep its process for many minutes: a new crash dump ends the wait.
+        dumps = [p for p in (LOGS.parent / "packagedDumps").glob("*") if p.stat().st_mtime > state.get("started", time.time())]
+        if dumps:
+            print(f"the game crashed before it was ready (dump {dumps[0].name}); last state: {last}")
+            return False
         time.sleep(3)
     print(f"timed out; last state: {last}")
     return False
@@ -373,7 +427,7 @@ def scenario(file: Path, suite: str, sets: list[str], timeout: float, is_manual:
         if not hosted.get("ok"):
             result = {"ok": False, "error": "could not host the game", "host": hosted}
         elif not wait(600):
-            result = {"ok": False, "error": "the game was not ready in 10 minutes"}
+            result = {"ok": False, "error": "the game was not ready in 10 minutes, or it crashed before (see the live.py output)"}
         else:
             result, _ = run_phases(file, timeout)
     except (OSError, ConnectionError, ValueError) as e:

@@ -6,7 +6,7 @@ reset of a civ's progress except where noted.
 ## Contents
 
 - [Engine limits](#engine-limits)
-- [Updating a game in progress (from 0.2.1)](#updating-a-game-in-progress-from-021)
+- [Updating a game in progress](#updating-a-game-in-progress)
 - [Not tested](#not-tested)
 - [Open checks](#open-checks)
 - [Ideas not built](#ideas-not-built)
@@ -19,13 +19,15 @@ reset of a civ's progress except where noted.
 | **Prereq in another tree** | The game never opens a prerequisite in another tree: a civic that needs a tech, or a civic of one civic tree that needs a civic of another, stays locked for all time. The base game has no such prerequisite (a query of the base data with all DLC finds 0). A tree's reveal requirement (`RevealRequirementSetId`) only adds a tree; it does not hide one. Evidence: iterations 20261029-141650 (civic needing a tech), 20261029-142802 (civic needing a civic of the main tree), 20261029-142316 (reveal sets). | The civic tree has its own Breakthroughs. Later-age civ trees have no prerequisite gate: unique trees show with the tech Breakthrough and Test of Time trees with the civic Breakthrough (gated reveal modifiers); branch trees keep their base-game conditions. Up to version 0.2.1, no civ could research an Exploration or Modern civic. |
 | **U-CIVTREE** (lost own civics) | A civ that keeps its civ can lose 2 to 4 completed civics of its own Antiquity civ tree at the load (for example Egypt, Greece, Han; not Persia or Rome). They become researchable again. No cause was found, and the game has no call to grant them back. | A small reset: 150 to 250 culture per civic to research them again. |
 | **U-UNIQUE-COMMANDER** | The game sometimes removes the previous civ's unique commander instead of converting it, with its promotions. | One commander lost in some transitions. |
-| **Commander conversion** | The game converts kept commanders to the new civ's unique commander (for example Army Commander to Soltan), also for a civ behind its gate. A script cannot change a unit's type. A test run fails if a kept base unit becomes the unique unit of a rule 2i pair (Settler, Merchant, Scout): those rows are gone, so the game has nothing to convert. | Cosmetic. |
+| **Commander conversion** | The game converts kept commanders to the new civ's unique commander (for example Army Commander to Soltan, or the previous civ's unique commander: Noyan to Soltan in iteration 20261031-214228), also for a civ behind its gate. A script cannot change a unit's type. A test run fails if a kept base unit becomes the unique unit of a rule 2i pair (Settler, Merchant, Scout): those rows are gone, so the game has nothing to convert. | Cosmetic. |
 | **U-COMMANDER-GAP** | A civ whose unique commander replaces the Army Commander (Mongolia, Bulgaria, Buganda, Joseon, Qajar) cannot train an Army Commander before its Breakthrough, as in version 0.3.0. The data row that blocks it (`UnitReplaces`, which has no condition) also lets the game convert the unique commander to an Army Commander, with its promotions, when the civ takes a new civ. A test build without the row lost the commander at each such change (iterations 20261031-155019 and 161244: Noyan; before, it was converted in 23 of 26 transitions). | The civ's armies wait for its Breakthrough or the unique commander. |
 | **U-POLICY-LOAD** | At the Modern load the game gives every civ the Exploration main-tree policies, earned or not; Levies and Divine Right then replace Conscription and Oratory. | Policies change, not lost. |
 | **U-GREAT-PERSON**, **U-CRISIS-UNIT** | Every great person is removed at each load, also for a civ that keeps its civ: Egypt's Tjaty, Spain's conquistadors, Abbasid's Alim al-Shaybani (iterations 20261031-153836, 155019, 155901). The base game keeps only commanders (`Unit_TransitionRetains`). Plague Physicians end with their crisis. | As in the base game. |
 | **U-LEVY** | Independent powers research the joined tree at their own pace and can field later-age units, which a major civ can get by a levy before its own Breakthrough. | Rare (seen once, in a test with cheap techs). |
 
-## Updating a game in progress (from 0.2.1)
+## Updating a game in progress
+
+### From 0.2.1 to 0.3.0
 
 Saves of 0.2.1 load with 0.3.0, and every civ keeps its state. Tested with five 0.2.1 saves (Antiquity
 turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each played 20 turns with 0.3.0,
@@ -48,6 +50,20 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   the saved game, which the new rules cannot take back; the next world transition sets the trees
   again (iterations 20261029-184748, 184915, 185138).
 
+### From 0.3.0 to 0.4.0
+
+Saves of 0.3.0 load with 0.4.0. Tested with five saves of a 0.3.0 game (iteration 20261101-014304:
+Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each played 20 turns with
+0.4.0, through the next world transition where there was one.
+
+- **AI governments of an earlier age stay until the next world transition (U-GOV-SAVE).** In 0.3.0 an
+  AI civ could keep a government of an earlier age (Egypt kept Oligarchy, Rome kept Classical
+  Republic). Rule 3 acts at a world transition, so such a civ keeps that government until the next one.
+  In the Exploration save of turn 135, every civ took a government of the Modern age at the transition
+  (iteration 20261101-010214). In a Modern-world save, the government stays for the rest of the game.
+  The test report names it as `KNOWN LIMIT (U-GOV-SAVE)`, only for a government that the civ had at the
+  load, in a world that the run did not enter by a transition.
+
 ## Not tested
 
 - **Human play at a transition.** The screens a person uses at a world transition (civ choice,
@@ -69,7 +85,24 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   mod does not change the civ choice. The test reports it as `CIV CHOICE FAIL`.
 - **Crashes at game start.** About 3 of 60 test games crashed in the first minutes, in the game's
   audio engine. A retry ran clean each time. No crash happened later in a game. `iterate.py` now retries
-  a run once when the game crashes before turn 5, and the report says so.
+  a run once when the game crashes before turn 5, and the report says so. One more crash, on
+  2026-11-01 in `live.py all`: the third game in a row (scenario meet_distant) crashed 10 seconds after
+  its start, during the base game's map generation (`addFeatures`), as the previous game's process
+  closed (access violation in the game executable). Its process stayed for 22 minutes, and Steam
+  started no other game meanwhile. `live.py` now keeps the id of each game process it starts, stops
+  waiting at a new crash dump, and closes that process. In the rerun (`live.py all`, 2026-11-01,
+  20261101-021300-all.md), a crash reporter stayed after at least 4 of the 7 test games with no crash
+  and no dump; `live.py` closed it before the next launch, and all 7 scenarios passed. Not seen yet
+  after a game that a person quits from the menu.
+- **A missed age end in one test game (U-AGEEND-MISSED).** In iteration 20261031-214228 (seed 2002)
+  the Antiquity age ended and the transition ran (the transition script wrote its records), but the
+  test's `GameAgeEnded` handler did not run, so the run has no age-end records for that transition.
+  The UI was slow then (many base-game `unit-flags.js` errors). In autoplay the game likely started the
+  transition before the UI handled the event. The mod's own `GameAgeEnded` handler only writes test
+  records. The other 188 world transitions of the stored runs (`build/iterations`, 153 runs) all reached
+  the handler. The report now names it as
+  `KNOWN LIMIT (U-AGEEND-MISSED)`, counts the transition, and matches each reload with its age end by
+  the new world age (before, the next age end was compared with the wrong reload and failed).
 - **One hang in 146 test games.** Iteration 20261031-162612 (one human slot, observed as player 0)
   stopped at the start of Modern turn 2, in the turn of player 0. No log changed for 26 minutes, no
   player had an active turn, the game used about 9 cores, and the UI still answered. An exact repeat

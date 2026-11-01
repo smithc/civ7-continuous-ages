@@ -69,7 +69,7 @@ NEW IN 0.4.0
 - Fix: in the Antiquity world, deep ocean damages the units of a civ past its Exploration Breakthrough until it has Shipbuilding, as in the Exploration world.
 - Fix: at a world transition, AI civs take a government of the new world age.
 - In a game started with 0.2.1, civics can finish one per turn for a while and show "0 turns": the game pays out culture it held back in 0.2.1. It ends by itself.
-- Games saved with 0.3.0 continue with 0.4.0.
+- Games saved with 0.3.0 continue with 0.4.0. In such a game, an AI civ with a government of an earlier age keeps it until the next world transition.
 
 STATUS
 Playable, in testing. Full AI games pass all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.

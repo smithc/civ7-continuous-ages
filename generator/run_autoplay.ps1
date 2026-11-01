@@ -58,26 +58,28 @@ if ($reporter -and -not (Get-Process -Name 'Civ7_Win64_*' -ErrorAction SilentlyC
     Start-Sleep -Seconds 3
 }
 
-$start = Get-Date
+# UTC times: local time goes back one hour when daylight saving time ends (2026-11-01, 02:00): a run then
+# found no log newer than its start and said "COULD NOT RUN" (iteration 20261101-015922, run time -58.9 minutes).
+$start = [DateTime]::UtcNow
 Write-Host "Starting autoplay: $Turns turns, suite $suite"
 & $steam -applaunch $appId -autojson $suite -bypassStartButton
 
 # Wait for the game process to start, then to exit.
 $deadline = $start.AddMinutes($TimeoutMinutes)
 $proc = $null
-while (-not $proc -and (Get-Date) -lt $start.AddMinutes(3)) {
+while (-not $proc -and [DateTime]::UtcNow -lt $start.AddMinutes(3)) {
     Start-Sleep -Seconds 5
     $proc = Get-Process -Name 'Civ7_Win64_*' -ErrorAction SilentlyContinue | Select-Object -First 1
 }
 if (-not $proc) { Write-Host 'FAIL: the game did not start within 3 minutes.'; exit 2 }
 $hung = $false
 $watched = @((Join-Path $logs 'UI.log'), (Join-Path $logs 'RandCalls.csv'))
-while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
     Start-Sleep -Seconds 15; $proc.Refresh()
     if ($StallMinutes -gt 0 -and -not $proc.HasExited) {
-        $last = ($watched | Where-Object { Test-Path $_ } | ForEach-Object { (Get-Item $_).LastWriteTime } | Measure-Object -Maximum).Maximum
-        if ($last -and $last -gt $start -and ((Get-Date) - $last).TotalMinutes -ge $StallMinutes) {
-            Write-Host "HANG: no change in UI.log or RandCalls.csv for $StallMinutes minutes (last at $last); closing the game."
+        $last = ($watched | Where-Object { Test-Path $_ } | ForEach-Object { (Get-Item $_).LastWriteTimeUtc } | Measure-Object -Maximum).Maximum
+        if ($last -and $last -gt $start -and ([DateTime]::UtcNow - $last).TotalMinutes -ge $StallMinutes) {
+            Write-Host "HANG: no change in UI.log or RandCalls.csv for $StallMinutes minutes (last at $($last.ToLocalTime())); closing the game."
             $hung = $true
             $proc | Stop-Process -Confirm:$false
             Start-Sleep -Seconds 5
@@ -86,13 +88,13 @@ while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
     }
 }
 $timedOut = -not $hung -and -not $proc.HasExited
-$minutes = [math]::Round(((Get-Date) - $start).TotalMinutes, 1)
+$minutes = [math]::Round(([DateTime]::UtcNow - $start).TotalMinutes, 1)
 
 # Report.
 $newDumps = foreach ($d in $dumpDirs) {
-    if (Test-Path $d) { Get-ChildItem $d -Recurse -File | Where-Object { $_.LastWriteTime -gt $start -and $_.Name -match 'Civ7|submission' } }
+    if (Test-Path $d) { Get-ChildItem $d -Recurse -File | Where-Object { $_.LastWriteTimeUtc -gt $start -and $_.Name -match 'Civ7|submission' } }
 }
-$results = Get-ChildItem $logs -File | Where-Object { $_.LastWriteTime -gt $start } |
+$results = Get-ChildItem $logs -File | Where-Object { $_.LastWriteTimeUtc -gt $start } |
     Select-String -Pattern '\[PASS\]|\[FAIL\]|Autoplay Turn Limit Hit' -SimpleMatch:$false
 Write-Host "Run time: $minutes minutes. Timed out: $timedOut"
 if ($newDumps) { Write-Host 'CRASH: new dump files:'; $newDumps | ForEach-Object { Write-Host "  $($_.FullName)" } }

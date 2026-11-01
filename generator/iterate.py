@@ -317,7 +317,7 @@ def replace_starts(qfile: Path, players: list) -> tuple[list[str], bool]:
     return lines + [""], failed
 
 
-def gov_report(players: list) -> tuple[list[str], bool]:
+def gov_report(players: list, transitions: list | None = None, entered_unseen: list | None = None) -> tuple[list[str], bool]:
     """Rule 3: a civ's government is one of the world age's (as in the base game, where each world offers only its
     own; the base game's StartingGovernments of each world give a government's age). Governments that no world
     offers at the start (Revolución and others set by effects) are not checked. Before the fix of the AI's
@@ -336,9 +336,26 @@ def gov_report(players: list) -> tuple[list[str], bool]:
     lines = ["## Governments of the world age (rule 3)", ""]
     if not wrong:
         return lines + ["- every civ has a government of its world age (or one set by an effect)", ""], False
-    lines += [f"- GOV-AGE FAIL: {w}, player {pid} ({civ}) has {gov} ({', '.join(sorted(age_of[gov]))}) from turn {t}"
-              for (w, pid, civ, gov), t in sorted(wrong.items(), key=lambda x: (str(x[0][0]), x[0][1]))[:20]]
-    return lines + [""], True
+    # A run from a save starts in a world without a transition in this run: a government that the civ had at its
+    # first record there came with the save (a save of 0.3.0, before rule 3: iterations 20261101-010042 to
+    # 010428). Rule 3 acts at the next world transition (20261101-010214: none wrong after it).
+    order = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
+    entered = {order[order.index(t["from"]) + 1] for t in (transitions or []) if t.get("from") in order[:-1]}
+    entered |= set(entered_unseen or [])
+    first = {}
+    for p in players:
+        if p.get("age"):
+            first.setdefault((p["age"], p["id"]), p)
+    failed = False
+    for (w, pid, civ, gov), t in sorted(wrong.items(), key=lambda x: (str(x[0][0]), x[0][1]))[:20]:
+        f = first.get((w, pid), {})
+        if w not in entered and f.get("turn", 1) > 1 and f.get("gov") == gov:
+            lines.append(f"- KNOWN LIMIT (U-GOV-SAVE): {w}, player {pid} ({civ}) has {gov} ({', '.join(sorted(age_of[gov]))}) "
+                         f"since the load of the save (turn {f.get('turn')}); rule 3 acts at the next world transition")
+        else:
+            failed = True
+            lines.append(f"- GOV-AGE FAIL: {w}, player {pid} ({civ}) has {gov} ({', '.join(sorted(age_of[gov]))}) from turn {t}")
+    return lines + [""], failed
 
 
 def bank_report(banks: list) -> tuple[list[str], bool]:
@@ -623,8 +640,29 @@ def reload_resource_batches() -> list[dict]:
     return out
 
 
+def reload_slots(transitions: list, res_batches: list, n_batches: int) -> tuple[list, list[str]]:
+    """The reload batch of each TRANSITION record (None for the last age), and the new world ages of the
+    reloads that have no TRANSITION record. The batches (RELOAD, RELOADUNITS, RELOADCONS, GATEMODS,
+    RELOADRES) are one per world transition, in order. A transition can lack its TRANSITION and AGEEND
+    records: in 20261031-214228 the game started the Antiquity transition before the UI handled GameAgeEnded,
+    so the test's handler never ran, and the next TRANSITION record was paired with the wrong batch. So
+    match by the new world age of the RELOADRES batch; older runs without it use the position."""
+    order = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
+    ages = [b.get("age") for b in res_batches]
+    by_age = len(ages) == n_batches and all(ages)
+    slots, seen = [], set()
+    for ti, t in enumerate(transitions):
+        if t.get("from") not in order[:-1]:
+            slots.append(None)
+            continue
+        nxt = order[order.index(t["from"]) + 1]
+        seen.add(nxt)
+        slots.append((ages.index(nxt) if nxt in ages else None) if by_age else ti)
+    return slots, [a for a in ages if by_age and a not in seen]
+
+
 def reload_reset_report(transitions: list, ends: list, reload_batches: list, ui_resources: list,
-                        res_batches: list) -> tuple[list[str], bool]:
+                        res_batches: list, slots: list | None = None) -> tuple[list[str], bool]:
     """Design goal 1, the base game's headline resets: at each world transition, the age end (AGEEND and
     RESOURCES, UI.log) against the reload (RELOAD and RELOADRES, written by the transition script before any
     civ plays, so a civ's first turn cannot hide a reset). FAIL on fewer cities (a city made a town), less
@@ -657,7 +695,8 @@ def reload_reset_report(transitions: list, ends: list, reload_batches: list, ui_
         nxt = order[order.index(t["from"]) + 1]
         lines.append(f"- {t['from']} -> {nxt}:")
         before = {e["id"]: e for e in ends if e.get("age") == t["from"]}
-        reload = reload_batches[ti] if ti < len(reload_batches) else {}
+        si = slots[ti] if slots is not None else ti
+        reload = reload_batches[si] if si is not None and si < len(reload_batches) else {}
         n_city, n_money, top = 0, {"gold": 0, "influence": 0}, {"gold": 0, "influence": 0}
         for pid in sorted(before):
             b, r = before[pid], reload.get(pid)
@@ -930,7 +969,7 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                   "on average (age transitions not included)", ""]
     # Crash dumps
     dumps = [p for d in DUMP_DIRS if d.exists() for p in d.rglob("*")
-             if p.is_file() and datetime.fromtimestamp(p.stat().st_mtime) > start
+             if p.is_file() and p.stat().st_mtime > start.timestamp()  # epoch: safe across a daylight saving change
              and ("Civ7" in p.name or p.name == "submission.pkg")]
     lines += ["## Crashes", ""]
     for d in dumps:
@@ -1010,7 +1049,23 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
     transitions = records("TRANSITION")
     lines += ["", "## Age transitions", "", f"- transitions started: {len(transitions)} "
               + ", ".join(f"{t['from']} (turn {t['turn']})" for t in transitions)]
-    count_lines, count_failed = transition_count_report(transitions, expect_transitions)
+    # Gold after each reload, before any civ plays (written by the transition script, one batch per transition).
+    reload_batches, cur = [], {}
+    for r in records("RELOAD"):
+        if r["id"] in cur:
+            reload_batches.append(cur)
+            cur = {}
+        cur[r["id"]] = r
+    if cur:
+        reload_batches.append(cur)
+    res_batches = reload_resource_batches()
+    slots, unseen = reload_slots(transitions, res_batches, len(reload_batches))
+    for age in unseen:
+        # The transition script ran (a reload batch), but the test's age-end handler did not: the game started
+        # the transition before the UI handled GameAgeEnded. Counted as a transition; its age-end checks cannot run.
+        lines.append(f"- KNOWN LIMIT (U-AGEEND-MISSED): the transition into {age} has its reload records but no "
+                     f"TRANSITION or AGEEND record (the test's GameAgeEnded handler did not run); its age-end checks could not run")
+    count_lines, count_failed = transition_count_report(transitions + [{"from": None}] * len(unseen), expect_transitions)
     lines += count_lines
     failed |= count_failed
     order = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
@@ -1035,15 +1090,6 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
     cons = {}
     for r in records("CONS"):
         cons.setdefault((r["when"], r["age"], r["id"]), []).extend(r["types"])
-    # Gold after each reload, before any civ plays (written by the transition script, one batch per transition).
-    reload_batches, cur = [], {}
-    for r in records("RELOAD"):
-        if r["id"] in cur:
-            reload_batches.append(cur)
-            cur = {}
-        cur[r["id"]] = r
-    if cur:
-        reload_batches.append(cur)
     def type_batches(kind):
         """Per transition: player -> {types, source}; a new batch starts when a player's part 0 repeats."""
         out, cur = [], {}
@@ -1080,7 +1126,8 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
     for ti, t in enumerate(transitions):
         if t["from"] == order[-1]:
             continue  # the game ends after the last age
-        reload = reload_batches[ti] if ti < len(reload_batches) else {}
+        si = slots[ti]  # this transition's reload batch (reload_slots)
+        reload = reload_batches[si] if si is not None and si < len(reload_batches) else {}
         nxt = order[order.index(t["from"]) + 1]
         before = {e["id"]: e for e in ends if e["age"] == t["from"]}
         after = {}
@@ -1127,7 +1174,7 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                     lines.append(f"  - KNOWN LIMIT (half swap): {note}")
                 else:
                     lines.append(f"  - civ choice: {note}")
-            gm = (gate_mods[ti] if ti < len(gate_mods) else {}).get(pid)
+            gm = (gate_mods[si] if si is not None and si < len(gate_mods) else {}).get(pid)
             if gm is not None:
                 n, act = (gm.get("CA_GATE_") or [0, 0])
                 # The civ's abilities wait for the gate of the civ's own age, not the world's: an Exploration civ
@@ -1151,8 +1198,8 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                              f"(shadows: {reload[pid].get('shadows')}), {a['units']} at the first check")
             # Unit and constructible types after the reload (before any civ plays). Without them, the first
             # check (after each civ's first turn) is used, and the report says so.
-            r_units = reload_units[ti].get(pid) if ti < len(reload_units) else None
-            r_cons = reload_cons[ti].get(pid) if ti < len(reload_cons) else None
+            r_units = reload_units[si].get(pid) if si is not None and si < len(reload_units) else None
+            r_cons = reload_cons[si].get(pid) if si is not None and si < len(reload_cons) else None
             ub = unit_lists.get(("end", t["from"], pid))
             ua = r_units["types"] if r_units else unit_lists.get(("start", nxt, pid))
             when = "after the reload" if r_units else "at the first check (no reload record)"
@@ -1291,13 +1338,20 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                             if u in need_cache["gap_uus"]:
                                 continue
                             base = need_cache["replaces"].get("UNIT_" + u, "").replace("UNIT_", "")
-                            k = min(early[u], left.get(base, 0))
-                            if k:
-                                converted[f"{base} -> {u}"] = k
-                                left[base] -= k
-                                early[u] -= k
+                            if not base:
+                                continue
+                            # The kept unit is the base unit, or the previous civ's unique version of it (Noyan ->
+                            # Soltan: both replace the Army Commander, iteration 20261031-214228).
+                            for src in [base] + [l for l in left if l != base and left[l] > 0 and
+                                                 need_cache["replaces"].get("UNIT_" + l, "").replace("UNIT_", "") == base]:
+                                k = min(early[u], left.get(src, 0))
+                                if k:
+                                    converted[f"{src} -> {u}"] = converted.get(f"{src} -> {u}", 0) + k
+                                    left[src] -= k
+                                    early[u] -= k
                                 if not early[u]:
                                     del early[u]
+                                    break
                         if converted:
                             lines.append(f"  - KNOWN LIMIT: the engine converted kept units to the new civ's unique units "
                                          f"(civ age {a.get('civAge')}): {converted}")
@@ -1441,7 +1495,7 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
     lines.append("")
     # Design goal 1: the base game's resets (cities to towns, gold and influence caps, old resources removed).
     reset_lines, reset_failed = reload_reset_report(transitions, ends, reload_batches, records("RESOURCES"),
-                                                    reload_resource_batches())
+                                                    res_batches, slots)
     lines += reset_lines
     failed |= reset_failed
     # Units held at each age end, against the civ's age then: covers every way to get a unit,
@@ -1518,7 +1572,7 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
             lines.append(f"| {p['turn']} | {p['modifier']} | {p['unit']} | {p['fromTurn']} | {json.dumps(p['query'])} | "
                          f"{json.dumps(p['canStart'])} | {p['disabled']} | {p['permanentlyDisabled']} |")
     if players:
-        gov_lines, gov_failed = gov_report(players)
+        gov_lines, gov_failed = gov_report(players, transitions, unseen)
         lines += [""] + gov_lines
         failed |= gov_failed
     bank_lines, bank_failed = bank_report(records("BANK"))
@@ -1685,7 +1739,7 @@ def main() -> int:
     if retried:
         autoplay_out = f"RETRIED: {retried}\n\n" + autoplay_out
     ui_log = LOGS / "UI.log"
-    if res.returncode == 2 or not ui_log.exists() or datetime.fromtimestamp(ui_log.stat().st_mtime) < start:
+    if res.returncode == 2 or not ui_log.exists() or ui_log.stat().st_mtime < start.timestamp():
         # No game ran (the runner timed out waiting for the game to start): the logs are an older run's.
         report = f"# Iteration {stamp}: COULD NOT RUN\n\n```\n{autoplay_out}\n```\n"
         (workdir / "REPORT.md").write_text(report, encoding="utf-8")

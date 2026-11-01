@@ -357,11 +357,19 @@ function buildCheck(player, turn) {
 // age's tech (or civic) Breakthrough. The engine should refuse them (NeededUnlock). Asks the production
 // screen's query.
 const LATER_ITEMS = { TECH_EX: new Set(), TECH_MO: new Set(), CIVIC_EX: new Set(), CIVIC_MO: new Set() };
+// The other nodes that unlock the same item (for example the Qajar tree's Sun Throne and the Modern main
+// tree's Hegemony both unlock Eram Garden). A civ that completed such a node may start the item.
+const OTHER_UNLOCKS = new Map();
 for (const u of GameInfo.ProgressionTreeNodeUnlocks) {
+  if (u.TargetKind !== "KIND_UNIT" && u.TargetKind !== "KIND_CONSTRUCTIBLE") continue;
   // Main trees only: a civ's unique tree (NODE_CIVIC_EX_ABBASID_...) is gated by the civ itself.
   const m = /^NODE_(TECH|CIVIC)_(EX|MO)_/.exec(u.ProgressionTreeNodeType);
-  if (!m || (m[1] === "CIVIC" && !u.ProgressionTreeNodeType.includes("_MAIN_"))) continue;
-  if (u.TargetKind === "KIND_UNIT" || u.TargetKind === "KIND_CONSTRUCTIBLE") LATER_ITEMS[`${m[1]}_${m[2]}`].add(u.TargetType);
+  if (!m || (m[1] === "CIVIC" && !u.ProgressionTreeNodeType.includes("_MAIN_"))) {
+    if (!OTHER_UNLOCKS.has(u.TargetType)) OTHER_UNLOCKS.set(u.TargetType, []);
+    OTHER_UNLOCKS.get(u.TargetType).push(u.ProgressionTreeNodeType);
+    continue;
+  }
+  LATER_ITEMS[`${m[1]}_${m[2]}`].add(u.TargetType);
 }
 function gateCheck(player, turn, civAge) {
   const capitalId = (player.Cities?.getCityIds() ?? []).find((id) => Cities.get(id)?.isCapital);
@@ -379,6 +387,10 @@ function gateCheck(player, turn, civAge) {
       if (!locked.some((a) => LATER_ITEMS[a].has(type))) continue;
       const r = byIndex.get(def.$index);
       if (!r) out.notListed++;
+      else if (r.Success && (OTHER_UNLOCKS.get(type) ?? []).some((n) => hasNode(player.id, n))) {
+        if (!out.ownUnlock) out.ownUnlock = [];
+        out.ownUnlock.push(type.replace(/^(UNIT|BUILDING)_/, ""));
+      }
       else if (r.Success) out.ok.push(type.replace(/^(UNIT|BUILDING)_/, ""));
       else if (r.NeededUnlock !== undefined && r.NeededUnlock != -1) out.needUnlock++;
       else {
