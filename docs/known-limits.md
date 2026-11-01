@@ -67,7 +67,9 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
 ## Not tested
 
 - **Human play at a transition.** The screens a person uses at a world transition (civ choice,
-  government choice, legacy cards) have not been used with the mod. The live tests can play a human slot,
+  government choice, legacy cards) were used with the mod in one game only: a human game through the
+  transition from Antiquity to Exploration, before the 0.4.0 release (2026-11-01). The transition to the
+  Modern world was not played by hand. The live tests can play a human slot,
   but not these screens: in a test the game chooses the human's civ itself, at random (see
   [Testing](testing.md#live-tests)). Please report anything wrong there.
 - Multiplayer.
