@@ -8,9 +8,12 @@ dumps and the [PASS]/[FAIL] lines that the automation writes to the logs.
 
 Usage:  powershell -ExecutionPolicy Bypass -File run_autoplay.ps1 [-Turns 60] [-TimeoutMinutes 60]
 
-Not yet confirmed in this game build: the exact -autojson syntax, whether the
-retail build accepts it, and whether the enabled mods are active in the
-automation game. Check the first run by watching the screen.
+Worker mode (parallel games; iterate.py --worker N sets the environment, see gamepool.py):
+when CIV7_WORKER is set, the game starts from its executable with the worker's environment
+(its own user folders; SteamAppId, so the Steam client serves it without a Steam launch).
+The script then follows only its own game process: it writes the process id to
+<worker>\game.pid, closes only that game's crash reporter, and reads only that game's
+dumps (<pid> in the name) from the real user's CrashDumps folder.
 #>
 param(
     [int]$Turns = 60,
@@ -25,19 +28,25 @@ param(
     # A hang: the game runs, but UI.log and RandCalls.csv have not changed for this many minutes. The runner
     # then closes the game it started and exits with code 4 (iteration 20261031-162612: no log change for
     # 26 minutes at Modern turn 2; the runner waited for the full timeout). 0 turns the check off.
-    [int]$StallMinutes = 10
+    [int]$StallMinutes = 10,
+    # A suite file in another folder (full path) instead of -Suite (the save test plays the previous release's suite).
+    [string]$SuiteFile = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $steam = 'C:\Program Files (x86)\Steam\steam.exe'
 $appId = 1295660
+$worker = if ($env:CIV7_WORKER) { [int]$env:CIV7_WORKER } else { 0 }
+$gameDir = if ($env:CIV7_GAME_DIR) { $env:CIV7_GAME_DIR } else { "C:\Program Files (x86)\Steam\steamapps\common\Sid Meier's Civilization VII" }
+$bin = Join-Path $gameDir 'Base\Binaries\Win64'
+$realLocal = if ($env:CIV7_REAL_LOCALAPPDATA) { $env:CIV7_REAL_LOCALAPPDATA } else { $env:LOCALAPPDATA }
 $userData = Join-Path $env:LOCALAPPDATA "Firaxis Games\Sid Meier's Civilization VII"
 $logs = Join-Path $userData 'Logs'
 $dumpDirs = @((Join-Path $userData 'packagedDumps'), (Join-Path $userData 'dumps'), (Join-Path $env:LOCALAPPDATA 'CrashDumps'))
 
 # Write the suite with the requested turn count.
-$template = Join-Path $PSScriptRoot "autoplay\$Suite"
-$suite = Join-Path $env:TEMP $Suite
+$template = if ($SuiteFile) { $SuiteFile } else { Join-Path $PSScriptRoot "autoplay\$Suite" }
+$suite = Join-Path $env:TEMP (Split-Path -Leaf $template)
 # UTF-8 without a byte-order mark: Windows PowerShell's "-Encoding utf8" adds one,
 # and the game ignored a suite file that started with it.
 $text = (Get-Content -Raw $template) -replace 'Turns=\d+', "Turns=$Turns" -replace 'ObserveAs=\w+', "ObserveAs=$ObserveAs"
@@ -51,8 +60,9 @@ foreach ($kv in ($Set -split ';' | Where-Object { $_ -match '=' })) {
 
 # A crash reporter window left by an earlier run (for example an exit crash) keeps Steam from
 # starting the game. The crash is already saved in packagedDumps, so close the window.
+# (Worker mode starts no game through Steam, and other workers' reporters are not this run's.)
 $reporter = Get-Process -Name 'FiraxisCrashReporter' -ErrorAction SilentlyContinue
-if ($reporter -and -not (Get-Process -Name 'Civ7_Win64_*' -ErrorAction SilentlyContinue)) {
+if ($worker -eq 0 -and $reporter -and -not (Get-Process -Name 'Civ7_Win64_*' -ErrorAction SilentlyContinue)) {
     Write-Host "Closing a crash reporter left by an earlier run (started $($reporter[0].StartTime))."
     $reporter | Stop-Process -Confirm:$false
     Start-Sleep -Seconds 3
@@ -61,17 +71,26 @@ if ($reporter -and -not (Get-Process -Name 'Civ7_Win64_*' -ErrorAction SilentlyC
 # UTC times: local time goes back one hour when daylight saving time ends (2026-11-01, 02:00): a run then
 # found no log newer than its start and said "COULD NOT RUN" (iteration 20261101-015922, run time -58.9 minutes).
 $start = [DateTime]::UtcNow
-Write-Host "Starting autoplay: $Turns turns, suite $suite"
-& $steam -applaunch $appId -autojson $suite -bypassStartButton
-
-# Wait for the game process to start, then to exit.
 $deadline = $start.AddMinutes($TimeoutMinutes)
 $proc = $null
-while (-not $proc -and [DateTime]::UtcNow -lt $start.AddMinutes(3)) {
-    Start-Sleep -Seconds 5
-    $proc = Get-Process -Name 'Civ7_Win64_*' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($worker -gt 0) {
+    Write-Host "Starting autoplay in worker ${worker}: $Turns turns, suite $suite"
+    $proc = Start-Process -FilePath (Join-Path $bin 'Civ7_Win64_DX12_FinalRelease.exe') -WorkingDirectory $bin -PassThru `
+        -ArgumentList @('-autojson', "`"$suite`"", '-bypassStartButton')
+    @{ pid = $proc.Id; started = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() } | ConvertTo-Json -Compress |
+        Set-Content -Encoding ascii (Join-Path $env:CIV7_WORKER_DIR 'game.pid')
+} else {
+    Write-Host "Starting autoplay: $Turns turns, suite $suite"
+    & $steam -applaunch $appId -autojson $suite -bypassStartButton
+    # Wait for the game process to start.
+    while (-not $proc -and [DateTime]::UtcNow -lt $start.AddMinutes(3)) {
+        Start-Sleep -Seconds 5
+        $proc = Get-Process -Name 'Civ7_Win64_*' -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
 }
 if (-not $proc) { Write-Host 'FAIL: the game did not start within 3 minutes.'; exit 2 }
+Write-Host "Game process: $($proc.Id)"
+# Wait for the game to exit.
 $hung = $false
 $watched = @((Join-Path $logs 'UI.log'), (Join-Path $logs 'RandCalls.csv'))
 while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
@@ -90,9 +109,29 @@ while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
 $timedOut = -not $hung -and -not $proc.HasExited
 $minutes = [math]::Round(([DateTime]::UtcNow - $start).TotalMinutes, 1)
 
+# Worker mode: this game's crash reporter stays after the game exits (also without a crash). Give it up to 30
+# seconds to finish a crash package by itself, then close it. Other workers' reporters stay.
+if ($worker -gt 0 -and $proc.HasExited) {
+    $until = [DateTime]::UtcNow.AddSeconds(30)
+    do {
+        $mine = @(Get-CimInstance Win32_Process -Filter "Name='FiraxisCrashReporter.exe' and ParentProcessId=$($proc.Id)")
+        if ($mine.Count -gt 0) { Start-Sleep -Seconds 3 }
+    } while ($mine.Count -gt 0 -and [DateTime]::UtcNow -lt $until)
+    foreach ($r in $mine) {
+        Stop-Process -Id $r.ProcessId -Force -ErrorAction SilentlyContinue
+        Write-Host "Closed the crash reporter of this game (process $($r.ProcessId))."
+    }
+}
+
 # Report.
-$newDumps = foreach ($d in $dumpDirs) {
+$newDumps = @(foreach ($d in $dumpDirs) {
     if (Test-Path $d) { Get-ChildItem $d -Recurse -File | Where-Object { $_.LastWriteTimeUtc -gt $start -and $_.Name -match 'Civ7|submission' } }
+})
+# Worker mode: Windows Error Reporting writes to the real user's CrashDumps folder, for every game: only this
+# game's dumps (its process id is in the name) belong to this run.
+$realDumps = Join-Path $realLocal 'CrashDumps'
+if ($worker -gt 0 -and (Test-Path $realDumps)) {
+    $newDumps += @(Get-ChildItem $realDumps -File | Where-Object { $_.LastWriteTimeUtc -gt $start -and $_.Name -like "Civ7*.$($proc.Id).dmp" })
 }
 $results = Get-ChildItem $logs -File | Where-Object { $_.LastWriteTimeUtc -gt $start } |
     Select-String -Pattern '\[PASS\]|\[FAIL\]|Autoplay Turn Limit Hit' -SimpleMatch:$false

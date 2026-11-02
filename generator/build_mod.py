@@ -1391,6 +1391,7 @@ def prune_dangling(b: WorldBuild, violations) -> int:
 
 
 def main() -> None:
+    global OUT, BUILD_REPORT  # --out
     ap = argparse.ArgumentParser()
     ap.add_argument("--game-dir", type=Path, default=c.DEFAULT_GAME_DIR)
     ap.add_argument("--install", action="store_true")
@@ -1406,10 +1407,18 @@ def main() -> None:
                     help="test build: a negative control without this rule (repeatable; see DISABLE_RULES)")
     ap.add_argument("--control", action="store_true",
                     help="test build: the base game with the mod's logging and automation test only (needs --checks)")
+    ap.add_argument("--out", type=Path, default=None, metavar="DIR",
+                    help="build the mod in DIR/continuous-ages and the build report in DIR (default: build/). Parallel "
+                         "games (iterate.py --worker N) each build in their own folder")
     args = ap.parse_args()
     game = args.game_dir
     if args.package and (args.checks or args.fast_test is not None or args.age_points or args.probe or args.disable_rule or args.control):
         ap.error("--package makes a release build: leave out --checks, --fast-test, --age-points, --probe, --disable-rule and --control")
+    if args.package and args.out:
+        ap.error("--package builds in build/continuous-ages: leave out --out")
+    if args.out:
+        OUT = args.out.resolve() / MOD_ID
+        BUILD_REPORT = args.out.resolve() / f"{MOD_ID}-build-report.md"
     if args.control and not args.checks:
         ap.error("--control makes a test build: add --checks")
     if args.disable_rule and not args.checks:

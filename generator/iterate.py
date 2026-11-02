@@ -7,8 +7,12 @@
      errors, the [CA-CHECK] lines of checks/ca-checks.js, and the CSV logs.
   4. Write build/iterations/<time>/REPORT.md and keep a copy of the logs.
 
-Usage: python iterate.py [--turns 60] [--fast-test 0.1 | --no-fast-test] [--timeout 75]
+Usage: python iterate.py [--turns 60] [--fast-test 0.1 | --no-fast-test] [--timeout 75] [--worker N]
 Exit code: 0 = pass, 1 = fail, 2 = could not run.
+
+--worker N runs the game as worker N (gamepool.py): its own user folders, Mods, Logs and Saves, a build in
+build/workers/w<N>/build, and the run folder build/iterations/<time>-w<N>. Several workers can run at once.
+Without --worker, the run uses the real user folders and starts the game through Steam (one game at a time).
 """
 from __future__ import annotations
 
@@ -25,13 +29,21 @@ from datetime import datetime
 from pathlib import Path
 
 import civ7data as c
+import gamepool
 
+# --worker N: this process and its child processes (build, runner, game) use worker N's user folders. It must run
+# before the paths below, which follow Path.home() (USERPROFILE).
+WORKER = gamepool.activate_from_argv()
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-MOD_DIR = REPO / "build" / "continuous-ages"
+MOD_DIR = (gamepool.worker_dir(WORKER) / "build" if WORKER else REPO / "build") / "continuous-ages"
 USER_DATA = Path.home() / "AppData" / "Local" / "Firaxis Games" / "Sid Meier's Civilization VII"
 LOGS = USER_DATA / "Logs"
 DUMP_DIRS = [USER_DATA / "packagedDumps", USER_DATA / "dumps", Path.home() / "AppData" / "Local" / "CrashDumps"]
+# Windows Error Reporting writes every game's dumps to the real user's CrashDumps folder. A worker run reads there
+# only its own game's dumps: the process id (runner line "Game process: <pid>") is in the file name.
+REAL_CRASHDUMPS = gamepool.REAL_LOCALAPPDATA / "CrashDumps"
+TEST_SAVES = ("CA_*.Civ7Save",)  # the named test saves (from-save suites, save compatibility), copied into a worker
 TOOLS_PY = HERE / ".venv" / "Scripts" / "python.exe"
 
 
@@ -40,12 +52,18 @@ def run(cmd, **kw):
 
 
 def game_running() -> bool:
+    """A worker run: its own worker's game. A run without a worker: any game (also a worker's: Steam starts no
+    second game, and the runner follows the first game process it finds)."""
+    if WORKER:
+        return bool(gamepool.game_pids(WORKER))
     out = run(["tasklist", "/FI", "IMAGENAME eq Civ7_Win64_DX12_FinalRelease.exe", "/NH"]).stdout
     return "Civ7_Win64" in out
 
 
 def build(fast: float | None, age_points: int | None = None, extra: list | None = None) -> tuple[bool, str]:
     cmd = [sys.executable, str(HERE / "build_mod.py"), "--install", "--checks"] + (extra or [])
+    if WORKER:
+        cmd += ["--out", str(MOD_DIR.parent)]
     if age_points:
         cmd += ["--age-points", str(age_points)]
     if fast is not None:
@@ -971,6 +989,9 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
     dumps = [p for d in DUMP_DIRS if d.exists() for p in d.rglob("*")
              if p.is_file() and p.stat().st_mtime > start.timestamp()  # epoch: safe across a daylight saving change
              and ("Civ7" in p.name or p.name == "submission.pkg")]
+    game_pid = re.search(r"^Game process: (\d+)", autoplay_out, re.M)
+    if WORKER and game_pid and REAL_CRASHDUMPS.exists():
+        dumps += [p for p in REAL_CRASHDUMPS.glob(f"Civ7*.{game_pid.group(1)}.dmp") if p.stat().st_mtime > start.timestamp()]
     lines += ["## Crashes", ""]
     for d in dumps:
         lines.append(f"- {d}")
@@ -1686,16 +1707,30 @@ def main() -> int:
     ap.add_argument("--expect-transitions", type=int, default=None,
                     help="fail with fewer world transitions (TRANSITION records; the Modern age end counts), "
                          "for example 3 for the three-age suites at 700 turns")
+    ap.add_argument("--worker", type=int, default=None, metavar="N",
+                    help="run as worker N (parallel games; gamepool.py): own user folders, Mods, Logs and Saves")
     args = ap.parse_args()
     fast = None if args.no_fast_test else args.fast_test
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    if WORKER:
+        # Before anything else: a parallel game needs its own Saves folder (a Windows setting outside the repo) and
+        # the Steam client. No run folder for a run that cannot start.
+        problem = gamepool.require_documents(WORKER)
+        if not problem and not gamepool.steam_running():
+            problem = "NOT READY: the Steam client does not run (the game needs it; start Steam and log in)."
+        if problem:
+            print(f"Worker {WORKER}: {problem}")
+            return 2
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S") + (f"-w{WORKER}" if WORKER else "")
     workdir = REPO / "build" / "iterations" / stamp
     workdir.mkdir(parents=True, exist_ok=True)
 
     if game_running():
-        print("Civilization VII is running. Close it first.")
+        print(f"Civilization VII is running{f' in worker {WORKER}' if WORKER else ''}. Close it first.")
         return 2
+    if WORKER:
+        info = gamepool.prepare(WORKER, live=False, copy_saves=TEST_SAVES)
+        print(f"Worker {WORKER}: {info['user_data']}; saves {info['saves']}")
     # The generator source of this run, copied before the build (edits made during a run must not
     # end up in it), with a hash for the report header.
     shutil.copytree(HERE, workdir / "source", dirs_exist_ok=True,
@@ -1751,6 +1786,8 @@ def main() -> int:
     header = [f"# Iteration {stamp}: {'PASS' if passed else 'FAIL'}", "",
               f"- Turns: {args.turns}; suite: {args.suite}; fast test: {fast}; autoplay exit code: {res.returncode}",
               f"- Source: hash {source_hash} (source/), git {head}{' + uncommitted changes' if dirty else ''}",
+              ] + ([f"- Worker: {WORKER} (own user folders, Mods and Saves in {gamepool.worker_dir(WORKER)}; game started "
+                    "from its executable)"] if WORKER else []) + [
               f"- Known limits hit (listed, not counted as failures): {sum('KNOWN LIMIT' in l for l in lines)}",
               ] + [f"- Build, {m}" for m in re.findall(r"world \w+: .*?violations", build_out)] + [""]
     report = workdir / "REPORT.md"

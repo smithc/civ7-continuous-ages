@@ -181,6 +181,7 @@ Gaps to close next, most important first:
    fix. Add it to `scenarios/scenarios.json` so that `live.py all` keeps running it.
 4. **Prefer a scenario to waiting for the AI.** If a rule can be shown only when the AI happens to do
    something, it is not covered. Set the situation up.
-5. **Before a release**: the offline build, `live.py all`, the release suites in
-   [Development](development.md#automated-tests) (with `ContinuousAgesDefault.json` on several seeds), and
-   the save compatibility test.
+5. **Before a release**: the offline build, then the release set, `python regression.py run --workers 4`
+   (in `generator/`): `live.py all`, the release suites in [Development](development.md#automated-tests)
+   (with `ContinuousAgesDefault.json` on several seeds), and the save compatibility test, on parallel game
+   workers ([Parallel games](development.md#parallel-games)).

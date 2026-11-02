@@ -7,13 +7,18 @@
 - [How the mod is built](#how-the-mod-is-built)
 - [Build and install](#build-and-install)
 - [Automated tests](#automated-tests)
+- [Parallel games](#parallel-games)
 - [After a game patch or DLC](#after-a-game-patch-or-dlc)
 
 ## Requirements
 
 - Civilization VII installed (the generator reads the game's own data files).
 - Python 3.10 or later. The build uses only the standard library.
-- Windows for the automated tests (`run_autoplay.ps1` starts the game through Steam).
+- Windows for the automated tests, and the Steam client running and logged in (`run_autoplay.ps1`
+  starts the game through Steam; a parallel game starts the game from its executable, and the game still
+  needs the Steam client).
+- For parallel games (the release set): a Windows setting for the Documents folder. It is outside the
+  repo, so check it on each PC: `python gamepool.py check` (see [Parallel games](#parallel-games)).
 - Optional, for crash dump analysis: `pip install -r generator/requirements-tools.txt`.
 
 The default game folder is the Steam folder
@@ -31,11 +36,13 @@ your game is somewhere else.
 | `generator/ui/ca-civ-age.js` | The civ age banner; logs each civ's age and civ choice at each age end. |
 | `generator/ui/ca-tree-layout.js` | Tree screen columns from the prereqs inside each tree (the Breakthrough prereq of each age's first civics is in the tech tree; without this the civic tree has empty columns). It also repairs lines over more than one column: the game's `tree-grid.js` links them wrongly when a node has two of them, and its `tree-line.js` draws the last piece at the wrong height when the line's last dummy is a little below the target card (stray lines). The hover highlight skips the tech nodes in the path to a later-age civic (the game's code stops at the first one). |
 | `generator/checks/` | In-game check scripts and the autoplay test (built in only with `--checks`). |
-| `generator/iterate.py` | Build, install, autoplay and analysis in one step. |
-| `generator/live.py` | Live tests: starts a game for a script, runs JavaScript in the game through the UI debugger (port 9444), runs scenario files and writes `build/scenarios/<time>/REPORT.md` (see [Testing](testing.md#live-tests)). Before a launch it closes a crash reporter left by an earlier game (Steam counts it as the game and starts no other); it keeps the id of each game process it starts, and closes that game also after a crash. |
+| `generator/iterate.py` | Build, install, autoplay and analysis in one step. `--worker N` runs it as a parallel game worker (see [Parallel games](#parallel-games)). |
+| `generator/gamepool.py` | Parallel game workers: one folder per worker (`build/workers/w<N>/`) with its own user folders, the worker's environment, the game started from its executable, the worker's game process, and the check and setup of the Documents setting that parallel games need (`check`, `setup-documents`, `restore-documents`). It knows the game, not the mod. |
+| `generator/regression.py` | The release regression set (every suite, the live scenarios, the save load test) on N workers at once: `--list`, `run`, `status`, `rerun`, `stop`. Results in `build/regression/<stamp>.txt`. |
+| `generator/live.py` | Live tests: starts a game for a script, runs JavaScript in the game through the UI debugger (port 9444), runs scenario files and writes `build/scenarios/<time>/REPORT.md` (see [Testing](testing.md#live-tests)). Before a launch it closes a crash reporter left by an earlier game (Steam counts it as the game and starts no other); it keeps the id of each game process it starts, and closes that game also after a crash. `live.py --worker N <command>` runs in a parallel game worker; only one live game at a time (port 9444). |
 | `generator/scenarios/` | Scenario tests for `live.py` (`scenarios.json` lists them) and probe scenarios. |
 | `generator/ui_test.py` | UI test in the game: loads a save, runs `checks/ca-ui-test.js`, takes screenshots and checks the civic tree lines and hover highlight (see [UI test](#ui-test)). |
-| `generator/run_autoplay.ps1` | Starts the game with an autoplay suite and waits for it to end. It closes the game it started if `UI.log` and `RandCalls.csv` have not changed for 10 minutes (`-StallMinutes`); the report then says `HANG FAIL`. It compares times in UTC, so a run goes on when daylight saving time ends. |
+| `generator/run_autoplay.ps1` | Starts the game with an autoplay suite and waits for it to end. It closes the game it started if `UI.log` and `RandCalls.csv` have not changed for 10 minutes (`-StallMinutes`); the report then says `HANG FAIL`. It compares times in UTC, so a run goes on when daylight saving time ends. In a worker (`CIV7_WORKER` set by `iterate.py --worker N`) it starts the game from its executable, follows only that process, closes only that game's crash reporter, and reads only that game's dumps. |
 | `generator/autoplay/` | Autoplay suites. |
 | `generator/tools/crashstack.py` | Names the game frames of a crash dump's stack. |
 | `generator/tools/screenshot.py` | Screenshot of the primary screen as PNG (standard library only). |
@@ -103,6 +110,8 @@ automation, and writes `build/iterations/<time>/REPORT.md` with the logs and a c
 | All scenario tests (not an autoplay; needs `build_mod.py --install --checks`) | `python live.py all` (see [Testing](testing.md#scenario-tests)) | about 1 to 2 min each |
 | One scenario, or a live game to drive by hand | `python live.py scenario scenarios/meet_distant.js`, or `live.py start`, `wait`, `eval`, `quit`; `--manual` for a normal game without automation | about 1 min |
 | A probe: test modifiers that answer one engine question | `python build_mod.py --install --checks --probe disable_gate`, then a scenario | about 1 min |
+| Several of these at once | the same `iterate.py` or `live.py` commands, each with its own `--worker N` (see [Parallel games](#parallel-games)) | as the longest |
+| The release set: every suite above, all live scenarios, the save load test | `python regression.py run --workers 4` (`--list` shows the items) | see [Parallel games](#parallel-games) |
 
 See [Testing](testing.md) for which kind of test proves what, and for the coverage of the design goals.
 
@@ -183,6 +192,107 @@ then takes a screenshot of the whole screen, so keep the game window in front. T
 - a script error in the test.
 
 A run takes about 2 minutes.
+
+## Parallel games
+
+Several test games can run at once on one PC. Each one runs as a **worker** (`generator/gamepool.py`):
+
+```
+cd generator
+python gamepool.py check                       # READY? (Steam, the game, the Documents setting)
+python iterate.py <suite and flags> --worker 1 # as any iterate.py run, in worker 1
+python live.py --worker 3 all                  # the live scenarios, in worker 3
+python regression.py run --workers 4           # the release set, 4 games at once
+python gamepool.py status                      # each worker: game process, turn, last log change
+```
+
+### How it works
+
+- **Own user folders.** A worker is the folder `build/workers/w<N>/`. Its `profile/` folder is a small
+  copy of a Windows user profile. The worker's game runs with `USERPROFILE`, `LOCALAPPDATA`, `APPDATA`
+  and `TEMP` in that folder. The game finds its folders with `SHGetKnownFolderPath`, and that call
+  expands `%USERPROFILE%` from the process environment. So each worker has its own Logs, Mods, option
+  files, crash dumps and Saves. A new worker gets a copy of the real user's game folder (options, the
+  Mods database, legal and account caches; not Logs, dumps or mods).
+- **Own build and run folder.** `iterate.py --worker N` builds in `build/workers/w<N>/build/`
+  (`build_mod.py --out`), installs into the worker's Mods folder, and writes `build/iterations/<time>-w<N>/`.
+  `live.py --worker N` writes `build/scenarios/<time>-w<N>/`. The real Mods folder (the mod the user
+  plays) does not change.
+- **No Steam launch.** The worker starts `Civ7_Win64_DX12_FinalRelease.exe -autojson <suite>
+  -bypassStartButton` itself, with `SteamAppId=1295660` in the environment. With that variable,
+  `SteamAPI_RestartAppIfNecessary` (in `steam_api64.dll`) does not hand the launch to Steam, as when
+  Steam starts the game. The game still connects to the Steam client: Steam must run and own the game.
+  One Steam client serves every worker.
+- **Shared parts.** The game install, the Steam client, and the GPU shader caches
+  (`%LOCALAPPDATA%\D3DSCache`, `NVIDIA`, `AMD`: each worker has a directory junction to the real folder,
+  so a new worker does not compile every shader again). Every program on the PC already uses these
+  caches at the same time. Windows Error Reporting writes all dumps to the real user's `CrashDumps`
+  folder; a worker run reads there only the dumps with its own game's process id in the name.
+- **Test saves.** Before a game starts, a worker run copies every `CA_*.Civ7Save` of the real
+  `Saves\Single` folder into the worker's own Saves folder (the from-save suites and the save load test
+  need them).
+- **Same results.** The same build, seed and flags give byte-identical CSV logs in a worker, alone or
+  next to other workers, and in a run without a worker (2026-11-01: `Player_Stats`, `RandCalls`,
+  `CityBuildQueue`, `CombatLog`, `Player_Legacies` of 20261101-145822-w1, -150407-w1 and -150427-w2).
+
+### The Documents setting (outside the repo)
+
+The game keeps its saves in `Documents\My Games\Sid Meier's Civilization VII\Saves`. Windows reads the
+Documents folder from the registry, `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell
+Folders`, values `Personal` and `{F42EE2D3-909F-4907-8871-4C22FC0BF756}`. The Windows default is
+`%USERPROFILE%\Documents`, which follows a worker. OneDrive's folder backup writes a full path there
+(`C:\Users\<you>\OneDrive\Documents`), and no environment variable can move a full path. Then every
+worker gets the same Saves folder, and the autosaves of parallel games (`AutoSave_<age>_<turn>`) overwrite
+each other, and each game's "keep the last 10" deletes the other games' autosaves.
+
+`python gamepool.py setup-documents --yes` writes the same folder in the `%USERPROFILE%` form
+(`%USERPROFILE%\OneDrive\Documents`, type `REG_EXPAND_SZ`, the form that Windows uses for AppData,
+Downloads and the other folders). Normal programs still get the same folder. Only a process with another
+`USERPROFILE` (a worker's game) gets another one. It is a change to the user's Windows settings, not to
+the repo:
+
+- **Check it on each PC, and after a Windows or OneDrive change.** `python gamepool.py check` shows the
+  registry values, the folder of normal programs and of worker 1, and READY or NOT READY. `iterate.py
+  --worker`, `live.py --worker` and `regression.py run` make the same check before they start a game, and
+  stop with `NOT READY` and the fix (no run folder). One worker at a time can run without the setting with
+  `CIV7_ALLOW_SHARED_SAVES=1` (its saves then go to the real Saves folder, as in a run without a worker).
+- **Without the change** (another PC, or Documents outside the user profile), runs without `--worker`
+  work as before, one at a time.
+- `python gamepool.py setup-documents` without `--yes` shows the change. With `--yes` it saves the old
+  values once to `build/workers/documents-registry-backup.json`, writes the new ones, and checks that
+  normal programs still get the same folder (if not, it writes the old values back at once).
+- `python gamepool.py restore-documents --yes` writes the full path again (the form that OneDrive wrote).
+- On the development PC, the change was made on 2026-11-01 (`C:\Users\smith\OneDrive\Documents` to
+  `%USERPROFILE%\OneDrive\Documents`). After it: normal programs and the legacy `Shell Folders` key had
+  the same path as before, and OneDrive's `KfmFoldersProtectedNow` (3584: Desktop, Documents, Pictures)
+  did not change.
+
+### Limits
+
+- **Port 9444** (the UI debugger that `live.py` drives) has room for one game: the first game that
+  starts gets it, and the others run without it. Autoplay workers set `UIDebugger 0`; a live worker sets
+  `UIDebugger 1`, and `live.py` refuses to start, and stops waiting, when another process holds the port.
+  So only one live game runs at a time (`regression.py` keeps one live item at most).
+- **Runs without `--worker`** start the game through Steam, which starts no second game; they refuse to
+  start while any game runs, also a worker's. Do not start workers during such a run either: its runner
+  follows the first game process that it finds.
+- **`ui_test.py`** takes screenshots of the whole screen: it has no worker mode. Run it alone.
+- **Never while the user plays.** A worker does not touch the user's folders, but its game takes CPU and
+  GPU. `regression.py` refuses to start while a game runs that no worker started.
+- **Delete a worker only with `python gamepool.py reset N`.** It removes the shader-cache junctions
+  first: some delete tools follow a junction and empty its target (the real cache folder).
+- **Speed.** One game uses about 5 to 7 of the 24 cores of the development PC (Core Ultra 9 285K, 64 GB,
+  RTX 5090) and about 4 GB of memory in Antiquity. In a spike of 60 Antiquity turns, 2 games at once each
+  played as fast as one game alone, and 4 games at once each took 1.2 to 1.7 s per turn instead of 1.0
+  (about 2.7 times the work per hour).
+- **The release set on 4 workers** (2026-11-01, `build/regression/20261101-150843.txt`): all 19 items
+  passed in 86 minutes; one at a time they take about 257 minutes (3.0 times faster). Each game played
+  about 1.5 times slower than alone (the three-age game: 22 minutes instead of 15; the human slot: 49
+  instead of 45). With 4 games, the GPU's 3D engine is at 100% (each game draws as many frames as it can,
+  about 100 per second, in a maximized window at the High profile), the CPU at about 84%, and the GPU
+  memory at about 28 of 32 GB (5.7 to 7 GB per game). So `regression.py` uses 4 workers by default.
+  Lower frame rates, a smaller window and lower quality in the workers are not tested yet: the frame
+  limiter (`TickIntervalInHZ`) also limits the game's update loop, so it must be measured before it is used.
 
 ## After a game patch or DLC
 

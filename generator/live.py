@@ -22,6 +22,12 @@ Commands (in generator/):
   python live.py all [--only meet]               every scenario in scenarios/scenarios.json, one game each
 A scenario file returns {ok: true|false, ...}; its result and the [CA-CHECK][SCENARIO] records go to
 build/scenarios/<time>/REPORT.md with a copy of the logs. Exit code: 0 pass, 1 fail, 2 could not run.
+
+  python live.py --worker N <command> ...        the same in worker N (gamepool.py): own user folders, Mods, Logs
+                                                 and Saves; the game starts from its executable. Autoplay workers can
+                                                 run at the same time. Port 9444 has room for one game: only one live
+                                                 game at a time, and live.py refuses to start while another process
+                                                 holds the port (autoplay workers have UIDebugger 0).
 """
 from __future__ import annotations
 
@@ -42,13 +48,18 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+import gamepool
+
+# --worker N: this process and its child processes use worker N's user folders. Before the paths below (Path.home()).
+WORKER = gamepool.activate_from_argv()
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 HOST, PORT = "127.0.0.1", 9444
 STEAM = r"C:\Program Files (x86)\Steam\steam.exe"
 APP_ID = 1295660
 LOGS = Path.home() / "AppData" / "Local" / "Firaxis Games" / "Sid Meier's Civilization VII" / "Logs"
-STATE = REPO / "build" / "live" / "state.json"
+STATE = REPO / "build" / "live" / (f"state-w{WORKER}.json" if WORKER else "state.json")
+TEST_SAVES = ("CA_*.Civ7Save",)  # the named test saves, copied into a worker's own Saves folder
 
 
 # -- Chrome DevTools Protocol client (standard library) -------------------------------------------------
@@ -169,6 +180,9 @@ def evaluate(expression: str, timeout: float = 60, is_async: bool = False) -> di
 
 # -- the game process ----------------------------------------------------------------------------------
 def game_pids() -> list[int]:
+    """The game processes that count: in a worker, only the worker's own game; else every game."""
+    if WORKER:
+        return gamepool.game_pids(WORKER)
     out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Civ7_Win64_DX12_FinalRelease.exe", "/FO", "CSV", "/NH"],
                          capture_output=True, text=True).stdout
     return [int(m.group(1)) for m in re.finditer(r'"Civ7_Win64_DX12_FinalRelease\.exe","(\d+)"', out)]
@@ -199,18 +213,39 @@ def start(suite: str, sets: list[str], manual: bool = False) -> int:
     if game_pids():
         print("Civilization VII is running. Close it first (or use the running game: wait / eval).")
         return 2
+    if WORKER:
+        problem = gamepool.require_documents(WORKER)
+        if not problem and not gamepool.steam_running():
+            problem = "NOT READY: the Steam client does not run (the game needs it; start Steam and log in)."
+        owner = gamepool.port_owner(PORT)
+        if not problem and owner:
+            problem = (f"port {PORT} belongs to process {owner} (another game with the UI debugger, or another live game): "
+                       "live.py would drive that game. Close it, or wait for the other live game.")
+        if problem:
+            print(f"Worker {WORKER}: {problem}")
+            return 2
+        gamepool.prepare(WORKER, live=True, copy_saves=TEST_SAVES)
+        # A new worker has no mod: install the default test build ("all" installs each entry's own build first).
+        if not (gamepool.user_data(WORKER) / "Mods" / "continuous-ages" / "ui" / "ca-automation.js").exists():
+            print(f"worker {WORKER} has no test build: installing the default one")
+            if not install([]):
+                return 2
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps({"started": time.time(), "suite": None if manual else suite, "sets": sets, "manual": manual}),
                      encoding="utf-8")
     if manual:
         # LIVE_PLAIN_LAUNCH=1: without -bypassStartButton, exactly as a player starts the game.
         flags = [] if os.environ.get("LIVE_PLAIN_LAUNCH") == "1" else ["-bypassStartButton"]
+        if WORKER:
+            return launch_worker(flags, f"main menu (manual{', plain launch' if not flags else ''})")
         command = [STEAM, "-applaunch", str(APP_ID)] + flags
         close_crash_reporter()
         subprocess.Popen(command)
         print(f"started: main menu (manual{', plain launch' if not flags else ''})")
         return 0 if note_pids(command) else 2
     path = write_suite(suite, sets)
+    if WORKER:
+        return launch_worker(["-autojson", str(path), "-bypassStartButton"], f"suite {path}")
     command = [STEAM, "-applaunch", str(APP_ID), "-autojson", str(path), "-bypassStartButton"]
     close_crash_reporter()
     subprocess.Popen(command)
@@ -218,13 +253,23 @@ def start(suite: str, sets: list[str], manual: bool = False) -> int:
     return 0 if note_pids(command) else 2
 
 
+def launch_worker(flags: list[str], what: str) -> int:
+    """Worker mode: starts the game from its executable (gamepool.launch) and keeps its process id."""
+    proc = gamepool.launch(WORKER, flags)
+    state = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
+    state["pids"] = [proc.pid]
+    STATE.write_text(json.dumps(state), encoding="utf-8")
+    print(f"started in worker {WORKER} (process {proc.pid}): {what}")
+    return 0
+
+
 def close_crash_reporter() -> None:
     """The game's crash reporter (FiraxisCrashReporter.exe, in the game's folder) counts for Steam as part of the
     game. A reporter window left by an earlier crash keeps Steam from starting the game: Steam waits a few seconds
     for it, then gives up without a message (Steam console log: WaitingPrevProcess, then Completed; live.py all,
     2026-11-01, lost 4 scenarios so). The crash is already saved in packagedDumps. As run_autoplay.ps1 does,
-    close it only when no game runs."""
-    if game_pids():
+    close it only when no game runs. (A worker starts no game through Steam: quit_game closes its own reporter.)"""
+    if WORKER or game_pids():
         return
     out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq FiraxisCrashReporter.exe", "/FO", "CSV", "/NH"],
                          capture_output=True, text=True).stdout
@@ -307,6 +352,12 @@ def wait(timeout: float, expr: str = "globalThis.caLive?.ready === true && typeo
         expr = "typeof Game !== 'undefined' && Game.turn >= 1"
     deadline, last = time.time() + timeout, None
     while time.time() < deadline:
+        if WORKER:  # the endpoint must be this worker's game, not another game that got the port first
+            owner = gamepool.port_owner(PORT)
+            mine = set(json.loads(STATE.read_text(encoding="utf-8")).get("pids", [])) if STATE.exists() else set()
+            if owner and mine and owner not in mine:
+                print(f"port {PORT} belongs to process {owner}, not to this worker's game {sorted(mine)}: stopped")
+                return False
         try:
             t = targets()
             url = t[0]["url"] if t else None
@@ -352,6 +403,10 @@ def quit_game(timeout: float = 120) -> None:
         for pid in set(game_pids()) & mine:
             subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
             print(f"the game did not quit by itself: closed process {pid}")
+    if WORKER and STATE.exists():  # the worker game's crash reporter stays after the game exits
+        for pid in json.loads(STATE.read_text(encoding="utf-8")).get("pids", []):
+            for r in gamepool.close_reporters(pid):
+                print(f"closed the crash reporter of the game (process {r})")
     if STATE.exists() and not game_pids():
         STATE.unlink()
 
@@ -415,7 +470,7 @@ def run_phases(file: Path, timeout: float) -> tuple[dict, list]:
 
 
 def scenario(file: Path, suite: str, sets: list[str], timeout: float, is_manual: bool = False) -> int:
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S") + (f"-w{WORKER}" if WORKER else "")
     out = REPO / "build" / "scenarios" / stamp
     out.mkdir(parents=True, exist_ok=True)
     if start(suite, sets, is_manual) != 0:
@@ -456,7 +511,8 @@ def scenario(file: Path, suite: str, sets: list[str], timeout: float, is_manual:
 def install(options: list[str]) -> bool:
     """The test build that a scenario needs (build_mod.py --install --checks plus options, for example
     --age-points 8 for a scenario through world transitions)."""
-    res = subprocess.run([sys.executable, str(HERE / "build_mod.py"), "--install", "--checks"] + options,
+    out = ["--out", str(gamepool.worker_dir(WORKER) / "build")] if WORKER else []  # build/continuous-ages is shared
+    res = subprocess.run([sys.executable, str(HERE / "build_mod.py"), "--install", "--checks"] + options + out,
                          cwd=HERE, capture_output=True, text=True)
     ok = res.returncode == 0 and "Installed to" in res.stdout
     print(f"build {' '.join(options) or '(default)'}: {'installed' if ok else 'FAILED'}")
@@ -487,7 +543,7 @@ def run_all(listing: Path, only: str | None) -> int:
                     f"{new[-1].name if new else '-'} | {e.get('proves', '')} |")
     if installed not in (None, []):
         install([])
-    out = REPO / "build" / "scenarios" / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-all.md"
+    out = REPO / "build" / "scenarios" / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}{f'-w{WORKER}' if WORKER else ''}-all.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join([f"# Scenario tests: {'PASS' if not failed else f'{failed} FAIL'}", "",
                               "| Scenario | Settings | Result | Run | Proves |", "| --- | --- | --- | --- | --- |"] + rows) + "\n",
@@ -498,6 +554,8 @@ def run_all(listing: Path, only: str | None) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--worker", type=int, default=None, metavar="N",
+                    help="worker N (parallel games, gamepool.py); give it before the command")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("start"); p.add_argument("--suite", default="ContinuousAgesLive.json"); p.add_argument("--set", action="append", default=[])
     p.add_argument("--manual", action="store_true", help="a normal game without automation: start, then host it with the --set values")

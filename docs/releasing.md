@@ -31,11 +31,20 @@ absent), but this has not been tested. Test it on a game without DLC before the 
 
 1. Update the game, and commit all changes.
 2. Run the release tests (see [Development](development.md#automated-tests)):
-   - the three-age test (`ContinuousAgesTransition.json`);
-   - the stress test (`ContinuousAgesTransitionSeed777.json`);
+   - the release set: every suite, all live scenarios and the save load test, on parallel game workers
+     (see [Parallel games](development.md#parallel-games); `python gamepool.py check` must say READY first):
+
+     ```
+     cd generator
+     python regression.py run --workers 4
+     python regression.py status          # while it runs, and after
+     python regression.py rerun           # only the items that did not pass
+     ```
+
    - one game played by hand through one age transition.
 3. Check that saved games of the previous release still load (see
-   [Save compatibility](#save-compatibility)).
+   [Save compatibility](#save-compatibility)): the database check, and the load test (the release set's
+   `saves` items).
 4. Set `MOD_VERSION` in `generator/build_mod.py` (see [Versions](#versions)) and commit.
 5. Build the release:
 
@@ -118,16 +127,20 @@ Two checks, before each release:
    game, DLC and mod) for each world age. It fails if a `Types` row or a modifier id was removed.
    Other changes are listed for review. Ids that come from a list position (for example rule 5c's
    `CA_KEEP_TRADITION_<policy>_<n>`) must keep their positions: add new rows after the old ones.
-2. **Load test** of real saves of the previous version: play the previous version (its worktree's
-   `iterate.py`) and keep some autosaves, at least one per world age and one just before each world
-   transition. Copy each one to `CA_COMPAT.Civ7Save` in the `Saves/Single` folder and run:
+2. **Load test** of real saves of the previous version: the release set's `saves` items do it
+   (`python regression.py run --only saves`). `saves:play` plays the previous version in a game worker
+   (its own `build_mod.py`, from a git worktree, installs the old mod into the worker; the current runner
+   plays its suite) and keeps five autosaves, at least one per world age and one just before each world
+   transition, as `CA_<TAG>_<world>_<turn>.Civ7Save` in the real `Saves/Single` folder. Each
+   `saves:<world>_<turn>` item then loads one of them with the current build and plays 20 turns:
 
    ```
-   python iterate.py --suite ContinuousAgesFromSaveCompat.json --no-fast-test --turns 20 --observe NONE --timeout 25
+   python iterate.py --suite ContinuousAgesFromSaveCompat.json --no-fast-test --turns 20 --observe NONE --timeout 25 --set SaveName=CA_V040_01_0060 --worker 2
    ```
 
-   Each run must pass. Also compare each civ's state at the save with its first state after the
-   load (cities, towns, units, policies and traditions equal; techs and civics not lower).
+   Without `--set SaveName`, the suite loads `CA_COMPAT.Civ7Save`. Each run must pass. Also compare each
+   civ's state at the save with its first state after the load (cities, towns, units, policies and
+   traditions equal; techs and civics not lower).
 
 ## Compatibility table
 
