@@ -5,6 +5,53 @@ import { AutomationBasePlayGame } from '../../base-standard/ui/automation/automa
 import { Shared_OnAutomationEvent, PassTest, FailTest, LogCurrentPlayers } from '../../base-standard/ui/automation/automation-test-support.js';
 import './ca-live.js';
 
+// Hang watchdog (test builds only). The base game can stop in its turn-start autosave (docs/known-limits.md): the
+// save never reaches "Game State to storage", the turn never ends, the UI still runs. When a save has been open for
+// CAHangWatchMs (default 20000) and no turn event came for as long, the watchdog writes one record in UI.log:
+// [CA-CHECK][HANG] {"event":"detected","why":"hang",...}. The runner (run_autoplay.ps1) then closes the game at once
+// (HANG FAIL), and regression.py runs the item again from the start. No runtime nudge released a real hang (hang farm
+// 2026-11-01, run 20261101-211645-w6: setSnapshotEnabled off/on, Automation.pause, Network.saveGame (returned false),
+// Network.triggerNetworkCheck; Network.forceResync is not a function in a single-player game), so the watchdog
+// tries none. Suite parameters: CAHangWatch=0 turns it off; CAHangSimulate=<turn> writes the record ("why":
+// "simulated") once, at the begin of that turn, in a healthy game: a test of the early close. A world transition or
+// the game's end replaces the UI page, and the watchdog with it, so neither can set it off.
+const caHang = { saveStart: null, saveDone: null, lastTurnEvent: performance.now(), reportedFor: null };
+const caHangParam = (name, dflt) => {
+  try {
+    const v = Automation.getParameter("CurrentTest", name);
+    return v === null || v === undefined ? dflt : v;
+  } catch (e) {
+    return dflt;
+  }
+};
+const caHangDetected = (why) => {
+  const now = performance.now();
+  console.warn(`[CA-CHECK][HANG] ${JSON.stringify({ turn: Game.turn, age: GameInfo.Ages.lookup(Game.age)?.AgeType,
+    event: "detected", why, saveOpenMs: caHang.saveStart != null && caHang.saveDone == null ? Math.round(now - caHang.saveStart) : null,
+    sinceTurnEventMs: Math.round(now - caHang.lastTurnEvent) })}`);
+};
+engine.on("StartSaveRequest", () => { caHang.saveStart = performance.now(); caHang.saveDone = null; });
+engine.on("SaveComplete", () => { caHang.saveDone = performance.now(); });
+engine.on("TurnBegin", (data) => {
+  caHang.lastTurnEvent = performance.now();
+  const at = Number(caHangParam("CAHangSimulate", 0));
+  if (at > 0 && (data?.turn ?? Game.turn) === at) {
+    Automation.setParameter("CurrentTest", "CAHangSimulate", 0); // once per game, also across a world transition
+    caHangDetected("simulated");
+  }
+});
+engine.on("PlayerTurnActivated", () => { caHang.lastTurnEvent = performance.now(); });
+setInterval(() => {
+  if (Number(caHangParam("CAHangWatch", 1)) === 0) return;
+  const limit = Number(caHangParam("CAHangWatchMs", 20000));
+  const now = performance.now();
+  if (caHang.saveStart != null && caHang.saveDone == null && now - caHang.saveStart > limit && now - caHang.lastTurnEvent > limit
+      && caHang.reportedFor !== caHang.saveStart) {
+    caHang.reportedFor = caHang.saveStart; // one record per open save
+    caHangDetected("hang");
+  }
+}, 2000);
+
 // Civic trees the player has (a tree a player does not have shows its nodes as not unlocked),
 // and the traditions and policies unlocked (the effect of civics, kept across ages in the base game).
 // Snowball measures: settlement cap, population, buildings, science and culture per turn.

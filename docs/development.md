@@ -42,7 +42,7 @@ your game is somewhere else.
 | `generator/live.py` | Live tests: starts a game for a script, runs JavaScript in the game through the UI debugger (port 9444), runs scenario files and writes `build/scenarios/<time>/REPORT.md` (see [Testing](testing.md#live-tests)). Before a launch it closes a crash reporter left by an earlier game (Steam counts it as the game and starts no other); it keeps the id of each game process it starts, and closes that game also after a crash. `live.py --worker N <command>` runs in a parallel game worker; only one live game at a time (port 9444). |
 | `generator/scenarios/` | Scenario tests for `live.py` (`scenarios.json` lists them) and probe scenarios. |
 | `generator/ui_test.py` | UI test in the game: loads a save, runs `checks/ca-ui-test.js`, takes screenshots and checks the civic tree lines and hover highlight (see [UI test](#ui-test)). |
-| `generator/run_autoplay.ps1` | Starts the game with an autoplay suite and waits for it to end. It closes the game it started if `UI.log` and `RandCalls.csv` have not changed for 10 minutes (`-StallMinutes`); the report then says `HANG FAIL`. It compares times in UTC, so a run goes on when daylight saving time ends. In a worker (`CIV7_WORKER` set by `iterate.py --worker N`) it starts the game from its executable, follows only that process, closes only that game's crash reporter, reads only that game's dumps, and closes the game after the time limit (`-TimeoutMinutes`), so the worker is free for the next item. |
+| `generator/run_autoplay.ps1` | Starts the game with an autoplay suite and waits for it to end. It closes the game it started at once when the hang watchdog of the test build writes its `[CA-CHECK][HANG] ... "detected"` record in `UI.log` (the base-game save hang, [Known limits](known-limits.md#open-checks)), and if `UI.log` and `RandCalls.csv` have not changed for 10 minutes (`-StallMinutes`); the report then says `HANG FAIL`. It compares times in UTC, so a run goes on when daylight saving time ends. In a worker (`CIV7_WORKER` set by `iterate.py --worker N`) it starts the game from its executable, follows only that process, closes only that game's crash reporter, reads only that game's dumps, and closes the game after the time limit (`-TimeoutMinutes`), so the worker is free for the next item. |
 | `generator/autoplay/` | Autoplay suites. |
 | `generator/tools/crashstack.py` | Names the game frames of a crash dump's stack. |
 | `generator/tools/screenshot.py` | Screenshot of the primary screen as PNG (standard library only). |
@@ -323,9 +323,13 @@ the repo:
   the frame rate does not change. Minimum quality almost doubles the frames per second and also takes less
   CPU per frame; then the CPU is the limit (90 to 100%). No frame cap with VSync off adds about 5% alone
   and 6% with 6 games; a smaller window adds nothing reliable. All settings gave byte-identical CSV logs.
-  So `regression.py` uses **6 workers** by default; the projected time of the release set is about 50
-  minutes (not yet measured with the mod). The ratios come from early Antiquity: late-game turns use more
-  CPU, so the gain can be smaller there.
+  So `regression.py` uses **6 workers** by default. The ratios come from early Antiquity: late-game turns
+  use more CPU, so the gain can be smaller there.
+- **The release set on 6 workers** (2026-11-01, `build/regression/20261101-191259.txt`, commit de3c37f, the
+  worker settings above): 18 items in 56 minutes, with one repeat after a hang; one at a time they take
+  about 242 minutes (4.3 times faster). The saves of v0.4.0 were kept from the set before, so `saves:play`
+  did not run. The longest items set the time: Marathon took 51 minutes (31 alone) and the human slot 45
+  (45 alone); the three-age game took 21 minutes (15 alone).
 - **Priority.** The game sets its own priority class: Normal at start, AboveNormal some seconds later, and
   BelowNormal when its window loses the focus; it sets it again and again. With several games, the one
   whose window had the focus ran at BelowNormal and the others at AboveNormal: at 100% CPU it played about
@@ -336,10 +340,14 @@ the repo:
   priority" privilege (an elevated shell has it); without it, the runner sets Normal every 5 s, which holds
   only part of the time.
 - **Hangs.** In the study, 3 of about 50 games at minimum quality stopped in the base game's turn-start
-  autosave, all three in worker 2 (0 of 43 games at High that day, at about 84% CPU; none in the 18 games
-  after the priority was held; see [Known limits](known-limits.md#open-checks)). In a worker, the runner closes a hung game after 5 minutes
-  without a log change (10 without a worker), and `regression.py` runs a hung item once more
-  (`RETRY after HANG FAIL` in the results file).
+  autosave, all three in worker 2 (0 of 43 games at High that day, at about 84% CPU). After the priority
+  was held, none in the next 18 games, then one in the 18 autoplay games of the 6-worker release set, in
+  worker 5 (see [Known limits](known-limits.md#open-checks)), and one in 12 games of a hang farm. The runner
+  closes a hung game a few seconds after the watchdog's record (about 25 seconds after the save started; a
+  game without the record after 5 minutes without a log change in a worker, 10 without a worker), and
+  `regression.py` runs a hung item once more from the start (`RETRY after HANG FAIL` in the results file). A
+  continue from the last autosave was tried and dropped: after a load the base game picks some plots from
+  other candidate lists, so the game is no longer the game of its seed (Known limits).
 
 ## After a game patch or DLC
 

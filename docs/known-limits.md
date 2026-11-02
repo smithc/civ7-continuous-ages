@@ -117,16 +117,40 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   (BelowNormal after its window loses the focus), and worker 2's game ran at BelowNormal each time it was
   checked, also at the third hang: at 100% CPU such a game gets much less CPU time than games at
   AboveNormal, which can make a timing race more likely (inferred). Since then a worker's runner holds its
-  game at Normal (a job object; docs/development.md, Parallel games); no hang in the next 18 games. Each time
+  game at Normal (a job object; docs/development.md, Parallel games); no hang in the next 18 games. Then the
+  release set 20261101-191259 (6 workers, minimum quality) had one more hang with the priority held: item
+  default1001 in worker 5 stopped at the start of Antiquity turn 31 (iteration 20261101-193700-w5; the runner
+  printed `Game priority held at Normal (job object).`), and the repeat (20261101-194356-w5) played on. So
+  the priority hold does not stop the hang, and the hang is not special to worker 2. Each time
   the game stopped inside the autosave at the start of a turn, with the same log lines:
   `Serializer.log` ends with `writing Game State to buffer` and `waiting for request of type SAVE` (no
   `Game State to storage`), and `net_message_debug.log` ends with `Queuing Messages Start, State =
-  kReceiveAppMessage_SaveInProgress`. 4 hangs in more than 250 test games. The test runner closes a game
-  whose logs have not changed for 10 minutes (5 in a parallel worker), and the report says `HANG FAIL`:
-  repeat the run (`regression.py` runs a hung item once more by itself). Workers save without the minimap
-  picture (`AddMinimapSnapshotToSaves 0`), which the game draws on the GPU for each save; whether that
-  makes the hang rarer is not known yet. Open: does the priority hold stop the hang, or was it the CPU
-  load at minimum quality?
+  kReceiveAppMessage_SaveInProgress`. A hang farm (6 workers, 2026-11-01, `build/hang-study/farm.py`) had one
+  more in 12 games (iteration 20261101-211645-w6, Antiquity turn 35): 6 hangs in more than 280 test games.
+  - **Detection and close.** The test builds' hang watchdog (`checks/ca-automation.js`) writes
+    `[CA-CHECK][HANG] {"event":"detected",...}` in `UI.log` when a save has been open for 20 seconds with no turn
+    event (a normal save takes 0.3 to 0.5 seconds). The runner (`run_autoplay.ps1`) reads it at its next check
+    and closes the game at once (in the farm hang the watchdog found the hang 21 seconds after the save
+    started). The report says `HANG FAIL`; repeat the run (`regression.py` runs a hung item once more by itself).
+    Without the record (an older build, or a stop that is not this hang) the runner closes a game whose logs
+    have not changed for 10 minutes (5 in a parallel worker). The suite parameter `CAHangSimulate=<turn>` writes
+    the record in a healthy game, to test the close (iteration 20261101-215137-w1: the game closed 2 seconds
+    after the record).
+  - **No release from a script.** In the farm hang the watchdog tried each runtime call that the game's own
+    scripts use near saves and the network, one at a time with 20 seconds each: `setSnapshotEnabled` off and on,
+    `Automation.pause`, `Network.saveGame` (it returned `false`), `Network.triggerNetworkCheck`
+    (`Network.forceResync` is not a function in a single-player game). None released the save or the turn.
+  - **No continue from the last autosave.** A test continued a run in a new game process from the last
+    autosave that completed (iteration 20261101-214426-w1 against the same seed without a stop,
+    20261101-214446-w2). `Player_Stats.csv`, `CityBuildQueue.csv`, `CombatLog.csv` and the other compared CSV
+    files were identical up to turn 41, but `RandCalls.csv` was not: after the load the game picks volcano and
+    river plots from other candidate lists (the same seeds, other ranges, for example 176 against 4). So the
+    rest of a continued game is not the game of its seed. Also the checks write their "first check after a
+    load" records again, which the analysis would add to the real age-start records. A hung run therefore
+    starts again from the start.
+  - Workers save without the minimap picture (`AddMinimapSnapshotToSaves 0`), which the game draws on the GPU
+    for each save; whether that makes the hang rarer is not known yet. Open: does the CPU load at minimum
+    quality make the hang more likely? (The priority hold does not stop it: set 20261101-191259.)
 - **Extra units for a civ that keeps its civ (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
   "legacy" civ of the new age with the Test of Time civic Syncretism (`MOD_SYNCRETISM`,
   `EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE`), with that civ's traits (`LegacyCivilizationTraits`), and

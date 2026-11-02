@@ -14,6 +14,15 @@ when CIV7_WORKER is set, the game starts from its executable with the worker's e
 The script then follows only its own game process: it writes the process id to
 <worker>\game.pid, closes only that game's crash reporter, and reads only that game's
 dumps (<pid> in the name) from the real user's CrashDumps folder.
+
+Hang close: the base game can stop in its turn-start autosave (docs/known-limits.md). The mod's in-game watchdog
+(checks/ca-automation.js) then writes a [CA-CHECK][HANG] "detected" record in UI.log after 20 s. The runner reads the
+new part of UI.log at each check (every 5 s in worker mode, else 15 s); with such a record (written after the runner
+started) it closes the game at once, prints "HANG: the in-game watchdog ..." and exits with code 4, as after a stall
+(the report says HANG FAIL; regression.py runs the item once more). The stall check (-StallMinutes) stays for hangs
+without the record. A continue from the last autosave was tried and dropped (2026-11-01): after a load the base game
+picks volcano and river plots from other candidate lists (RandCalls.csv), so the rest of the game is not the game
+of the seed, and the checks write extra "first check after a load" records.
 #>
 param(
     [int]$Turns = 60,
@@ -135,6 +144,33 @@ Write-Host "Game process: $($proc.Id)"
 # Wait for the game to exit.
 $hung = $false
 $watched = @((Join-Path $logs 'UI.log'), (Join-Path $logs 'RandCalls.csv'))
+# The in-game watchdog's record: only the new, complete lines of UI.log are read at each check (the game starts the
+# file again when it starts: a shorter file is read from the start). Records stamped before the runner's start are
+# from an earlier run.
+$uiLog = Join-Path $logs 'UI.log'
+$uiPos = [long]0
+$startLocal = (Get-Date).AddSeconds(-1)
+function Find-HangRecord {
+    if (-not (Test-Path $uiLog)) { return $null }
+    try { $fs = [System.IO.File]::Open($uiLog, 'Open', 'Read', 'ReadWrite, Delete') } catch { return $null }
+    try {
+        if ($fs.Length -lt $script:uiPos) { $script:uiPos = 0 }
+        $count = [int][math]::Min($fs.Length - $script:uiPos, 64MB)
+        if ($count -le 0) { return $null }
+        $buf = New-Object byte[] $count
+        [void]$fs.Seek($script:uiPos, 'Begin')
+        $n = $fs.Read($buf, 0, $count)
+        $end = [Array]::LastIndexOf($buf, [byte]10, $n - 1)
+        if ($end -lt 0) { return $null }
+        $script:uiPos += $end + 1
+        $text = [System.Text.Encoding]::UTF8.GetString($buf, 0, $end + 1)
+    } finally { $fs.Dispose() }
+    foreach ($m in [regex]::Matches($text, '(?m)^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]\s+\[CA-CHECK\]\[HANG\] (\{[^\r\n]*"event":"detected"[^\r\n]*\})')) {
+        $at = [datetime]::ParseExact($m.Groups[1].Value, 'yyyy-MM-dd HH:mm:ss', $null)
+        if ($at -ge $startLocal) { return "$($m.Groups[1].Value) $($m.Groups[2].Value)" }
+    }
+    return $null
+}
 while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
     # Worker mode: check every 5 s, and hold the game at Normal priority. The game sets its own class (AboveNormal, and
     # BelowNormal after its window loses the focus); with several games, a BelowNormal game played about half as fast
@@ -142,6 +178,16 @@ while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
     Start-Sleep -Seconds $(if ($worker -gt 0) { 5 } else { 15 }); $proc.Refresh()
     if ($worker -gt 0 -and -not $proc.HasExited) {
         try { if ($proc.PriorityClass -ne 'Normal') { $proc.PriorityClass = 'Normal' } } catch { }
+    }
+    if (-not $proc.HasExited) {
+        $record = Find-HangRecord
+        if ($record) {
+            Write-Host "HANG: the in-game watchdog found the turn-start autosave stuck (UI.log $record); closing the game."
+            $hung = $true
+            $proc | Stop-Process -Force -Confirm:$false
+            Start-Sleep -Seconds 5
+            break
+        }
     }
     if ($StallMinutes -gt 0 -and -not $proc.HasExited) {
         $last = ($watched | Where-Object { Test-Path $_ } | ForEach-Object { (Get-Item $_).LastWriteTimeUtc } | Measure-Object -Maximum).Maximum
