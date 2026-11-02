@@ -108,6 +108,14 @@ while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
 }
 $timedOut = -not $hung -and -not $proc.HasExited
 $minutes = [math]::Round(([DateTime]::UtcNow - $start).TotalMinutes, 1)
+# Worker mode: a game past the time limit is closed, so that the worker is free for the next item (without a
+# worker the game stays, as before).
+if ($worker -gt 0 -and $timedOut) {
+    Write-Host "TIMEOUT: the game runs after $TimeoutMinutes minutes; closing the game of worker $worker."
+    $proc | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 5
+    $proc.Refresh()
+}
 
 # Worker mode: this game's crash reporter stays after the game exits (also without a crash). Give it up to 30
 # seconds to finish a crash package by itself, then close it. Other workers' reporters stay.
