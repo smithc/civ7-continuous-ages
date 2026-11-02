@@ -111,7 +111,7 @@ automation, and writes `build/iterations/<time>/REPORT.md` with the logs and a c
 | One scenario, or a live game to drive by hand | `python live.py scenario scenarios/meet_distant.js`, or `live.py start`, `wait`, `eval`, `quit`; `--manual` for a normal game without automation | about 1 min |
 | A probe: test modifiers that answer one engine question | `python build_mod.py --install --checks --probe disable_gate`, then a scenario | about 1 min |
 | Several of these at once | the same `iterate.py` or `live.py` commands, each with its own `--worker N` (see [Parallel games](#parallel-games)) | as the longest |
-| The release set: every suite above, all live scenarios, the save load test | `python regression.py run --workers 4` (`--list` shows the items) | see [Parallel games](#parallel-games) |
+| The release set: every suite above, all live scenarios, the save load test | `python regression.py run --workers 6` (`--list` shows the items) | see [Parallel games](#parallel-games) |
 
 See [Testing](testing.md) for which kind of test proves what, and for the coverage of the design goals.
 
@@ -202,7 +202,7 @@ cd generator
 python gamepool.py check                       # READY? (Steam, the game, the Documents setting)
 python iterate.py <suite and flags> --worker 1 # as any iterate.py run, in worker 1
 python live.py --worker 3 all                  # the live scenarios, in worker 3
-python regression.py run --workers 4           # the release set, 4 games at once
+python regression.py run --workers 6           # the release set, 6 games at once
 python gamepool.py status                      # each worker: game process, turn, last log change
 ```
 
@@ -290,9 +290,32 @@ the repo:
   about 1.5 times slower than alone (the three-age game: 22 minutes instead of 15; the human slot: 49
   instead of 45). With 4 games, the GPU's 3D engine is at 100% (each game draws as many frames as it can,
   about 100 per second, in a maximized window at the High profile), the CPU at about 84%, and the GPU
-  memory at about 28 of 32 GB (5.7 to 7 GB per game). So `regression.py` uses 4 workers by default.
-  Lower frame rates, a smaller window and lower quality in the workers are not tested yet: the frame
-  limiter (`TickIntervalInHZ`) also limits the game's update loop, so it must be measured before it is used.
+  memory at about 28 of 32 GB (5.7 to 7 GB per game). That set ran at the High profile, before the worker
+  graphics below.
+- **Worker graphics: minimum quality (since 2026-11-01).** `gamepool.prepare()` writes `WORKER_GRAPHICS`
+  into each worker's `GraphicsOptions.txt` (`Profile Minimum`, every quality option at its lowest,
+  `RenderScale 0.5`) and `AddMinimapSnapshotToSaves 0` into its `UserOptions.txt`. A GPU study of
+  2026-11-01 (the base game without the mod, the same seed, 100 Antiquity turns per game) found:
+
+  | Games at once, setting | s/turn per game | Turns per second, all games | GPU memory per game |
+  | --- | --- | --- | --- |
+  | 4, High (as the first set ran) | 1.86 to 1.89 | 2.1 | 4.1 GB |
+  | 4, frame cap 60 Hz | 2.15 | 1.9 | 4.1 GB |
+  | 4, frame cap 30 Hz | 3.27 | 1.2 | 4.1 GB |
+  | 4, minimum quality | 1.53 | 2.6 | 1.5 GB |
+  | 5, minimum quality | 1.59 | 3.1 | 1.5 GB |
+  | 6, minimum quality | 1.64 | 3.7 | 1.5 GB |
+
+  The game does its turn work once per app tick (frame): a frame cap (`TickIntervalInHZ`) slows the turns,
+  and cheaper frames make them faster, so the frame cap stays as it is. Minimum quality almost doubles the
+  frames per second; then the CPU is the limit (90 to 100%). A smaller window, no frame cap or VSync off
+  added nothing on top. All settings gave byte-identical CSV logs. So `regression.py` uses **6 workers** by
+  default; the projected time of the release set is about 53 minutes (not yet measured with the mod). The
+  ratio comes from early Antiquity: late-game turns use more CPU, so the gain can be smaller there.
+- **Hangs.** In the study, 2 of 31 games at minimum quality stopped in the base game's turn-start autosave
+  (0 of 43 games at High that day; see [Known limits](known-limits.md#open-checks)). In a worker, the
+  runner closes a hung game after 5 minutes without a log change (10 without a worker), and
+  `regression.py` runs a hung item once more (`RETRY after HANG FAIL` in the results file).
 
 ## After a game patch or DLC
 

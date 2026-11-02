@@ -40,6 +40,9 @@ $worker = if ($env:CIV7_WORKER) { [int]$env:CIV7_WORKER } else { 0 }
 $gameDir = if ($env:CIV7_GAME_DIR) { $env:CIV7_GAME_DIR } else { "C:\Program Files (x86)\Steam\steamapps\common\Sid Meier's Civilization VII" }
 $bin = Join-Path $gameDir 'Base\Binaries\Win64'
 $realLocal = if ($env:CIV7_REAL_LOCALAPPDATA) { $env:CIV7_REAL_LOCALAPPDATA } else { $env:LOCALAPPDATA }
+# Worker mode: a hang is closed after 5 minutes without a log change, not 10 (a late-game turn takes about 10 s;
+# the rare base-game hang in the turn-start autosave, docs/known-limits.md, then costs half the time).
+if ($worker -gt 0 -and -not $PSBoundParameters.ContainsKey('StallMinutes')) { $StallMinutes = 5 }
 $userData = Join-Path $env:LOCALAPPDATA "Firaxis Games\Sid Meier's Civilization VII"
 $logs = Join-Path $userData 'Logs'
 $dumpDirs = @((Join-Path $userData 'packagedDumps'), (Join-Path $userData 'dumps'), (Join-Path $env:LOCALAPPDATA 'CrashDumps'))

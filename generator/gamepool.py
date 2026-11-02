@@ -2,7 +2,8 @@
 
 A worker is the folder build/workers/w<N>/. Its profile/ folder is a small copy of a Windows user profile. A game
 of worker N runs with USERPROFILE, LOCALAPPDATA, APPDATA and TEMP in that folder, so its Logs, Mods, option files,
-crash dumps and Saves are its own. The GPU shader caches are shared with the real user (SHARED_CACHES). The game
+crash dumps and Saves are its own. A worker draws at minimum graphics quality (WORKER_GRAPHICS: faster turns).
+The GPU shader caches are shared with the real user (SHARED_CACHES). The game
 finds its folders with SHGetKnownFolderPath, and that call expands %USERPROFILE% from the process environment
 (measured 2026-11-01: 4 games at once, each with the same Player_Stats.csv as a game alone). This module knows the
 game, not the mod.
@@ -63,6 +64,19 @@ TEMPLATE_SKIP = {"Logs", "dumps", "packagedDumps", "Mods", "Mods-disabled", "Pac
 # the access. Delete a worker only with "gamepool.py reset": it removes the junctions first (some delete tools
 # follow a junction and empty its target).
 SHARED_CACHES = ("D3DSCache", "NVIDIA", "AMD")
+# Worker graphics: minimum quality. A test game does its turn work once per app tick (frame), so cheaper frames
+# make faster turns (GPU study of 2026-11-01, base game, 4 games at once, 100 turns: 1.86 s/turn at High, 1.53 at
+# minimum quality; byte-identical CSV logs; GPU memory 4.1 -> 1.5 GB per game). A frame cap does the opposite (60 Hz:
+# 16% slower, 30 Hz: 76% slower), so TickIntervalInHZ stays as it is. Only worker files change; the user's game
+# keeps its own settings.
+WORKER_GRAPHICS = (
+    ("Profile", "Minimum"), ("TextureDetail", 0), ("AssetQuality", 0), ("SSAOQuality", 0), ("ShadowQuality", 0),
+    ("WaterQuality", 0), ("WaterSunSpecularEnabled", 0), ("VFXQuality", 0), ("TerrainGeometryQuality", 0),
+    ("EnableBloom", 0), ("EnableHeightFog", 0), ("EnableLightPointShadowMaps", 0), ("EnableLightPoints", 0),
+    ("EnableRefraction", 0), ("EnableSSR", 0), ("EnableSSShadows", 0), ("OverrideRenderScale", 1), ("RenderScale", 0.5))
+# Saves without the minimap picture: the game draws it on the GPU for every save, and the rare base-game hang happens
+# inside the turn-start autosave (docs/known-limits.md). Not proven to help; it does not change the game state.
+WORKER_USER_OPTIONS = (("AddMinimapSnapshotToSaves", 0),)
 UI_PORT = 9444  # AppOptions UIDebugger: the first game that starts gets the port; the others run without it
 SHELL_FOLDERS = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
 DOCUMENTS_VALUES = ("Personal", "{F42EE2D3-909F-4907-8871-4C22FC0BF756}")
@@ -279,7 +293,8 @@ def set_option(path: Path, key: str, value) -> None:
 def prepare(n: int, live: bool = False, copy_saves: tuple[str, ...] = ()) -> dict:
     """Makes or refreshes worker n. A new worker gets a copy of the real user's game folder (options, the Mods
     database, legal and account caches; not Logs, dumps or mods). Each call sets UIDebugger (1 only for a live
-    game: port 9444 must belong to the game that live.py drives) and windowed mode, and copies the real saves that
+    game: port 9444 must belong to the game that live.py drives), windowed mode, minimum graphics quality
+    (WORKER_GRAPHICS) and saves without a minimap picture (WORKER_USER_OPTIONS), and copies the real saves that
     match copy_saves (for example the test saves CA_*.Civ7Save) into the worker's own Saves folder."""
     src = user_data(None)
     dst = user_data(n)
@@ -293,6 +308,10 @@ def prepare(n: int, live: bool = False, copy_saves: tuple[str, ...] = ()) -> dic
     link_caches(n)
     set_option(dst / "AppOptions.txt", "UIDebugger", 1 if live else 0)
     set_option(dst / "AppOptions.txt", "FullScreen", 0)
+    for key, value in WORKER_GRAPHICS:
+        set_option(dst / "GraphicsOptions.txt", key, value)
+    for key, value in WORKER_USER_OPTIONS:
+        set_option(dst / "UserOptions.txt", key, value)
     own = saves(n)
     real = saves(None)
     copied = []

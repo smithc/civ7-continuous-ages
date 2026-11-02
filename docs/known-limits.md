@@ -105,13 +105,23 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   the handler. The report now names it as
   `KNOWN LIMIT (U-AGEEND-MISSED)`, counts the transition, and matches each reload with its age end by
   the new world age (before, the next age end was compared with the wrong reload and failed).
-- **One hang in 146 test games.** Iteration 20261031-162612 (one human slot, observed as player 0)
-  stopped at the start of Modern turn 2, in the turn of player 0. No log changed for 26 minutes, no
-  player had an active turn, the game used about 9 cores, and the UI still answered. An exact repeat
-  (the same build and seed, iteration 20261031-174104 in a worktree at commit 55a94c4) wrote the same
-  logs line for line up to that point, then played on. So the game data and the mod's rules, which are
-  deterministic, do not cause it; a timing race in the game is likely. Not seen again. The test runner
-  now closes a game whose logs have not changed for 10 minutes, and the report says `HANG FAIL`.
+- **A rare hang in the game's turn-start autosave (base game).** Iteration 20261031-162612 (one human
+  slot, observed as player 0) stopped at the start of Modern turn 2, in the turn of player 0. No log
+  changed for 26 minutes, no player had an active turn, the game used about 9 cores, and the UI still
+  answered. An exact repeat (the same build and seed, iteration 20261031-174104 in a worktree at commit
+  55a94c4) wrote the same logs line for line up to that point, then played on. So the game data and
+  the mod's rules, which are deterministic, do not cause it; a timing race in the game is likely. Seen
+  again twice on 2026-11-01 in GPU study games **without the mod** (base game, minimum graphics quality:
+  Antiquity turn 68 with 4 games at once, and turn 2 with 6 games at once; 2 of 31 games at minimum
+  quality, 0 of 43 games at High that day; both times worker 2, which starts second). Each time
+  the game stopped inside the autosave at the start of a turn, with the same log lines:
+  `Serializer.log` ends with `writing Game State to buffer` and `waiting for request of type SAVE` (no
+  `Game State to storage`), and `net_message_debug.log` ends with `Queuing Messages Start, State =
+  kReceiveAppMessage_SaveInProgress`. 3 hangs in more than 200 test games. The test runner closes a game
+  whose logs have not changed for 10 minutes (5 in a parallel worker), and the report says `HANG FAIL`:
+  repeat the run (`regression.py` runs a hung item once more by itself). Workers save without the minimap
+  picture (`AddMinimapSnapshotToSaves 0`), which the game draws on the GPU for each save; whether that
+  makes the hang rarer is not known yet. Open: is the hang more frequent at minimum quality?
 - **Extra units for a civ that keeps its civ (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
   "legacy" civ of the new age with the Test of Time civic Syncretism (`MOD_SYNCRETISM`,
   `EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE`), with that civ's traits (`LegacyCivilizationTraits`), and

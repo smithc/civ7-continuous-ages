@@ -36,7 +36,7 @@ absent), but this has not been tested. Test it on a game without DLC before the 
 
      ```
      cd generator
-     python regression.py run --workers 4
+     python regression.py run --workers 6
      python regression.py status          # while it runs, and after
      python regression.py rerun           # only the items that did not pass
      ```

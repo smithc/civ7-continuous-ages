@@ -3,8 +3,9 @@
   python regression.py --list [--workers N]      the items, their commands and typical minutes (one game each);
                                                  with --workers, the estimated time of the set
   python regression.py run [--workers N] [--only K1,K2,...] [--skip K,...] [--prev v0.4.0] [--fresh-saves] [--dry-run]
-                                                 run the items on N workers at once (default 4); results in
-                                                 build/regression/<stamp>.txt, each item's output in build/regression/<stamp>/
+                                                 run the items on N workers at once (default 6); results in
+                                                 build/regression/<stamp>.txt, each item's output in build/regression/<stamp>/;
+                                                 an item whose game hung (HANG FAIL) runs once more
   python regression.py status [RESULTS]          the latest (or given) set: each item's result and report, the items
                                                  that run now with their worker's turn, the items not started
   python regression.py rerun [RESULTS] [--workers N] [--dry-run]
@@ -50,7 +51,11 @@ REPO = HERE.parent
 REG = REPO / "build" / "regression"
 STATE = REG / "current.json"
 STOP_FILE = REG / "STOP"
-DEFAULT_WORKERS = 4  # measured 2026-11-01: 4 games use about 28 of the 32 GB of GPU memory (RTX 5090)
+# 6 workers with minimum graphics quality in the workers (gamepool.WORKER_GRAPHICS): in the GPU study of 2026-11-01,
+# 6 games each played 1.64 s/turn against 1.87 for 4 games at High (base game, 100 Antiquity turns), so a set should
+# take about 53 minutes instead of 86 (projected; the first set on 6 workers measures it). At High, 4 games used about
+# 28 of the 32 GB of GPU memory; at minimum quality a game uses about 1.5 GB.
+DEFAULT_WORKERS = 6
 
 T = "--turns 700 --timeout 150 --expect-transitions 3"
 # key, command (in generator/; the set adds --worker K), typical minutes of one game alone (measured on 31 October
@@ -134,7 +139,11 @@ class Job:
     started: float = 0.0
     result: str | None = None
     path: str = ""
+    retried: bool = False  # a second run after a hang
     extra: dict = field(default_factory=dict)
+
+    def again(self) -> "Job":
+        return Job(self.key, self.script, self.args, self.minutes, self.needs, self.save, self.live, retried=True)
 
     def command(self, worker: int) -> list[str]:
         if self.script == "live.py":
@@ -226,6 +235,15 @@ class Runner:
             j.proc = subprocess.Popen([sys.executable, "-u", *cmd], cwd=HERE, stdout=out, stderr=subprocess.STDOUT,
                                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
 
+    def hang(self, j: Job) -> bool:
+        """The runner closed the item's game as a hang: 'HANG FAIL' in its REPORT.md, or the runner's 'HANG:' line in
+        the item's output (saves:play)."""
+        text = j.log.read_text(encoding="utf-8", errors="replace") if j.log and j.log.exists() else ""
+        if re.search(r"^HANG:", text, re.M):
+            return True
+        report = Path(j.path) if j.path.endswith("REPORT.md") else None
+        return bool(report and report.exists() and "HANG FAIL" in report.read_text(encoding="utf-8", errors="replace"))
+
     def finish(self, j: Job, code: int | None) -> None:
         tail = j.log.read_text(encoding="utf-8", errors="replace").splitlines()[-40:] if j.log and j.log.exists() else []
         found = [m for m in (RESULT.match(l.strip()) for l in tail) if m]
@@ -237,7 +255,13 @@ class Runner:
             verdict, path = found[-1].group(1), found[-1].group(2)
             j.result = "PASS" if verdict == "PASS" and code == 0 else "FAIL"
             j.path = path
-            self.write(f"-- {now()} [{j.key}] {j.result}: {path} ({minutes:.0f} min)")
+            if j.result == "FAIL" and not j.retried and self.hang(j):
+                # The rare base-game hang in the turn-start autosave (docs/known-limits.md): run the item once more.
+                j.result = "RETRY"
+                self.write(f"-- {now()} [{j.key}] RETRY after HANG FAIL: {path} ({minutes:.0f} min); the item runs once more")
+                return
+            self.write(f"-- {now()} [{j.key}] {j.result}: {path} ({minutes:.0f} min)"
+                       + (" (second run after a hang)" if j.retried else ""))
         else:
             j.result = "COULD NOT RUN"
             last = next((l for l in reversed(tail) if l.strip()), "")
@@ -300,10 +324,13 @@ class Runner:
                     if code is None:
                         continue
                     self.finish(j, code)
-                    ended[j.key] = j.result
                     running.remove(j)
                     free.append(j.worker)
                     free.sort()
+                    if j.result == "RETRY":
+                        pending.insert(0, j.again())  # first in line; items that wait for it keep waiting
+                    else:
+                        ended[j.key] = j.result
                 if STOP_FILE.exists():
                     for j in pending:
                         self.write(f"-- {now()} [{j.key}] STOPPED (not started)")
@@ -413,7 +440,10 @@ def parse_results(path: Path) -> tuple[str, list[dict]]:
         elif cur is not None and cur["result"] is None and re.match(r"(PASS|FAIL|\d+ FAIL|COULD NOT RUN|STOPPED)\b", line):
             r = re.match(r"(PASS|FAIL|\d+ FAIL|COULD NOT RUN|STOPPED)[^:]*:? ?(.*)", line)
             cur["result"], cur["path"] = r.group(1), r.group(2).strip()
-    return head, items
+    last = {}  # an item that ran again after a hang ("RETRY after HANG FAIL"): only its last run counts
+    for it in items:
+        last[it["key"]] = it
+    return head, list(last.values())
 
 
 def status(path: Path | None) -> int:
