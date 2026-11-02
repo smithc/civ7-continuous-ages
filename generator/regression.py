@@ -53,7 +53,8 @@ STATE = REG / "current.json"
 STOP_FILE = REG / "STOP"
 # 6 workers with minimum graphics quality in the workers (gamepool.WORKER_GRAPHICS): in the GPU study of 2026-11-01,
 # 6 games each played 1.64 s/turn against 1.87 for 4 games at High (base game, 100 Antiquity turns), so a set should
-# take about 53 minutes instead of 86 (projected; the first set on 6 workers measures it). At High, 4 games used about
+# take about 50 minutes instead of 86 (projected; the first set on 6 workers measures it). Later the same day: no
+# frame cap, VSync off, no camera movement and a held priority gave 4.0 turns per second with 6 games. At High, 4 games used about
 # 28 of the 32 GB of GPU memory; at minimum quality a game uses about 1.5 GB.
 DEFAULT_WORKERS = 6
 

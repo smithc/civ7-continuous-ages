@@ -292,10 +292,16 @@ the repo:
   about 100 per second, in a maximized window at the High profile), the CPU at about 84%, and the GPU
   memory at about 28 of 32 GB (5.7 to 7 GB per game). That set ran at the High profile, before the worker
   graphics below.
-- **Worker graphics: minimum quality (since 2026-11-01).** `gamepool.prepare()` writes `WORKER_GRAPHICS`
-  into each worker's `GraphicsOptions.txt` (`Profile Minimum`, every quality option at its lowest,
-  `RenderScale 0.5`) and `AddMinimapSnapshotToSaves 0` into its `UserOptions.txt`. A GPU study of
-  2026-11-01 (the base game without the mod, the same seed, 100 Antiquity turns per game) found:
+- **Worker settings (since 2026-11-01).** `gamepool.prepare()` writes `WORKER_APP_OPTIONS` into each
+  worker's `AppOptions.txt` (`TickIntervalInHZ 0`: no frame cap), `WORKER_GRAPHICS` into its
+  `GraphicsOptions.txt` (`Profile Minimum`, every quality option at its lowest, `RenderScale 0.5`,
+  `VSync 0`), and `WORKER_USER_OPTIONS` into its `UserOptions.txt`: saves without the minimap
+  picture (`AddMinimapSnapshotToSaves 0`), and no camera movement to the local player's combats and no
+  historic-moment animation (`LookAtPlayerTurnCombat 0`, `LookAtPlayerOffTurnCombat 0`,
+  `PlayHistoricMomentAnimation 0`; they matter in a game observed as player 0). `NotificationCameraPan` and
+  `PlayerCombatCameraPan` stay as the user has them: the mod's automation test turns them off in memory, and
+  `ContinuousAgesTransitionPanOn.json` (`CAAutoPan=1`) keeps them on. A GPU study of 2026-11-01 (the base
+  game without the mod, the same seed, 100 Antiquity turns per game) found:
 
   | Games at once, setting | s/turn per game | Turns per second, all games | GPU memory per game |
   | --- | --- | --- | --- |
@@ -305,17 +311,35 @@ the repo:
   | 4, minimum quality | 1.53 | 2.6 | 1.5 GB |
   | 5, minimum quality | 1.59 | 3.1 | 1.5 GB |
   | 6, minimum quality | 1.64 | 3.7 | 1.5 GB |
+  | 6, minimum quality, no camera movement, priority held | 1.47 to 1.83 | 3.8 | 1.4 GB |
+  | 6, the same and no frame cap, VSync off | 1.41 to 1.61 | **4.0** | 1.4 GB |
+  | 1 alone, High, frame cap 238 (221 fps) | 1.04 | 1.0 | 4.1 GB |
+  | 1 alone, minimum quality, frame cap 238 (226 fps) | 0.95 | 1.1 | 1.4 GB |
+  | 1 alone, minimum quality, no frame cap, VSync off (468 fps) | 0.90 | 1.1 | 1.4 GB |
 
   The game does its turn work once per app tick (frame): a frame cap (`TickIntervalInHZ`) slows the turns,
-  and cheaper frames make them faster, so the frame cap stays as it is. Minimum quality almost doubles the
-  frames per second; then the CPU is the limit (90 to 100%). A smaller window, no frame cap or VSync off
-  added nothing on top. All settings gave byte-identical CSV logs. So `regression.py` uses **6 workers** by
-  default; the projected time of the release set is about 53 minutes (not yet measured with the mod). The
-  ratio comes from early Antiquity: late-game turns use more CPU, so the gain can be smaller there.
-- **Hangs.** In the study, 2 of 31 games at minimum quality stopped in the base game's turn-start autosave
-  (0 of 43 games at High that day; see [Known limits](known-limits.md#open-checks)). In a worker, the
-  runner closes a hung game after 5 minutes without a log change (10 without a worker), and
-  `regression.py` runs a hung item once more (`RETRY after HANG FAIL` in the results file).
+  and cheaper frames make them faster. With 4 games a turn took about 1.27 s plus about 60 frame times;
+  a game alone waits for about 22 frames per turn, and the rest (about 0.85 s) is the AI's own work, which
+  the frame rate does not change. Minimum quality almost doubles the frames per second and also takes less
+  CPU per frame; then the CPU is the limit (90 to 100%). No frame cap with VSync off adds about 5% alone
+  and 6% with 6 games; a smaller window adds nothing reliable. All settings gave byte-identical CSV logs.
+  So `regression.py` uses **6 workers** by default; the projected time of the release set is about 50
+  minutes (not yet measured with the mod). The ratios come from early Antiquity: late-game turns use more
+  CPU, so the gain can be smaller there.
+- **Priority.** The game sets its own priority class: Normal at start, AboveNormal some seconds later, and
+  BelowNormal when its window loses the focus; it sets it again and again. With several games, the one
+  whose window had the focus ran at BelowNormal and the others at AboveNormal: at 100% CPU it played about
+  half as fast (2.45 against 1.2 s/turn). The third hang of 2026-11-01 was in such a game (checked: BelowNormal);
+  the first two were also in worker 2, whose game ran at BelowNormal each time it was checked. In a
+  worker, `run_autoplay.ps1` puts the game into a Windows job object with a priority-class limit (Normal):
+  Windows keeps the class and ignores the game's changes. The limit needs the "increase scheduling
+  priority" privilege (an elevated shell has it); without it, the runner sets Normal every 5 s, which holds
+  only part of the time.
+- **Hangs.** In the study, 3 of about 50 games at minimum quality stopped in the base game's turn-start
+  autosave, all three in worker 2 (0 of 43 games at High that day, at about 84% CPU; none in the 18 games
+  after the priority was held; see [Known limits](known-limits.md#open-checks)). In a worker, the runner closes a hung game after 5 minutes
+  without a log change (10 without a worker), and `regression.py` runs a hung item once more
+  (`RETRY after HANG FAIL` in the results file).
 
 ## After a game patch or DLC
 

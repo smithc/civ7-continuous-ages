@@ -82,6 +82,45 @@ if ($worker -gt 0) {
         -ArgumentList @('-autojson', "`"$suite`"", '-bypassStartButton')
     @{ pid = $proc.Id; started = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() } | ConvertTo-Json -Compress |
         Set-Content -Encoding ascii (Join-Path $env:CIV7_WORKER_DIR 'game.pid')
+    # Hold the game at Normal priority with a Windows job object (priority-class limit): the game sets its own class
+    # again and again (AboveNormal; BelowNormal after its window loses the focus), and with several games a
+    # BelowNormal game played about half as fast at 100% CPU. The limit needs the "increase scheduling priority"
+    # privilege; without it, the wait loop below sets the class every 5 s instead.
+    try {
+        Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class CivJob {
+    [StructLayout(LayoutKind.Sequential)] struct BASIC { public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit;
+        public uint LimitFlags; public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass; }
+    [StructLayout(LayoutKind.Sequential)] struct LUID { public uint Low; public int High; }
+    [StructLayout(LayoutKind.Sequential)] struct TOKEN_PRIVILEGES { public uint Count; public LUID Luid; public uint Attributes; }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObject(IntPtr a, string name);
+    [DllImport("kernel32.dll")] static extern bool SetInformationJobObject(IntPtr job, int cls, ref BASIC info, int len);
+    [DllImport("kernel32.dll")] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("advapi32.dll")] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] static extern bool LookupPrivilegeValue(string sys, string name, out LUID luid);
+    [DllImport("advapi32.dll")] static extern bool AdjustTokenPrivileges(IntPtr token, bool all, ref TOKEN_PRIVILEGES p, int len, IntPtr prev, IntPtr ret);
+    public static string Hold(IntPtr process, uint priorityClass) {
+        IntPtr token; LUID luid;
+        if (OpenProcessToken(GetCurrentProcess(), 0x28, out token) && LookupPrivilegeValue(null, "SeIncreaseBasePriorityPrivilege", out luid)) {
+            TOKEN_PRIVILEGES tp = new TOKEN_PRIVILEGES(); tp.Count = 1; tp.Luid = luid; tp.Attributes = 2;  // SE_PRIVILEGE_ENABLED
+            AdjustTokenPrivileges(token, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+        }
+        IntPtr job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) return "CreateJobObject error " + Marshal.GetLastWin32Error();
+        BASIC b = new BASIC(); b.LimitFlags = 0x20; b.PriorityClass = priorityClass;  // JOB_OBJECT_LIMIT_PRIORITY_CLASS
+        if (!SetInformationJobObject(job, 2, ref b, Marshal.SizeOf(typeof(BASIC)))) return "SetInformationJobObject error " + Marshal.GetLastWin32Error();
+        if (!AssignProcessToJobObject(job, process)) return "AssignProcessToJobObject error " + Marshal.GetLastWin32Error();
+        return "";  // the job handle stays open while this runner waits; the game keeps the job after that too
+    }
+}
+'@
+        $jobError = [CivJob]::Hold($proc.Handle, 0x20)  # NORMAL_PRIORITY_CLASS
+        if ($jobError) { Write-Host "Priority job not set ($jobError): the wait loop holds Normal priority every 5 s." }
+        else { Write-Host "Game priority held at Normal (job object)." }
+    } catch { Write-Host "Priority job not set ($($_.Exception.Message)): the wait loop holds Normal priority every 5 s." }
 } else {
     Write-Host "Starting autoplay: $Turns turns, suite $suite"
     & $steam -applaunch $appId -autojson $suite -bypassStartButton
@@ -97,7 +136,13 @@ Write-Host "Game process: $($proc.Id)"
 $hung = $false
 $watched = @((Join-Path $logs 'UI.log'), (Join-Path $logs 'RandCalls.csv'))
 while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
-    Start-Sleep -Seconds 15; $proc.Refresh()
+    # Worker mode: check every 5 s, and hold the game at Normal priority. The game sets its own class (AboveNormal, and
+    # BelowNormal after its window loses the focus); with several games, a BelowNormal game played about half as fast
+    # at 100% CPU, and the rare save hang came from such games (gamepool.WORKER_PRIORITY).
+    Start-Sleep -Seconds $(if ($worker -gt 0) { 5 } else { 15 }); $proc.Refresh()
+    if ($worker -gt 0 -and -not $proc.HasExited) {
+        try { if ($proc.PriorityClass -ne 'Normal') { $proc.PriorityClass = 'Normal' } } catch { }
+    }
     if ($StallMinutes -gt 0 -and -not $proc.HasExited) {
         $last = ($watched | Where-Object { Test-Path $_ } | ForEach-Object { (Get-Item $_).LastWriteTimeUtc } | Measure-Object -Maximum).Maximum
         if ($last -and $last -gt $start -and ([DateTime]::UtcNow - $last).TotalMinutes -ge $StallMinutes) {

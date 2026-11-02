@@ -67,16 +67,33 @@ SHARED_CACHES = ("D3DSCache", "NVIDIA", "AMD")
 # Worker graphics: minimum quality. A test game does its turn work once per app tick (frame), so cheaper frames
 # make faster turns (GPU study of 2026-11-01, base game, 4 games at once, 100 turns: 1.86 s/turn at High, 1.53 at
 # minimum quality; byte-identical CSV logs; GPU memory 4.1 -> 1.5 GB per game). A frame cap does the opposite (60 Hz:
-# 16% slower, 30 Hz: 76% slower), so TickIntervalInHZ stays as it is. Only worker files change; the user's game
+# 16% slower, 30 Hz: 76% slower), so workers have no frame cap (WORKER_APP_OPTIONS). Only worker files change; the user's game
 # keeps its own settings.
 WORKER_GRAPHICS = (
     ("Profile", "Minimum"), ("TextureDetail", 0), ("AssetQuality", 0), ("SSAOQuality", 0), ("ShadowQuality", 0),
     ("WaterQuality", 0), ("WaterSunSpecularEnabled", 0), ("VFXQuality", 0), ("TerrainGeometryQuality", 0),
     ("EnableBloom", 0), ("EnableHeightFog", 0), ("EnableLightPointShadowMaps", 0), ("EnableLightPoints", 0),
-    ("EnableRefraction", 0), ("EnableSSR", 0), ("EnableSSShadows", 0), ("OverrideRenderScale", 1), ("RenderScale", 0.5))
+    ("EnableRefraction", 0), ("EnableSSR", 0), ("EnableSSShadows", 0), ("OverrideRenderScale", 1), ("RenderScale", 0.5),
+    ("VSync", 0))
+# No frame cap ("tick continuously"): with cheap frames a game passes 240 fps (468 fps alone), and a turn waits for
+# fewer frame times. Measured 2026-11-01 (base game, minimum quality, no camera movement, priority held): one game
+# alone 0.95 -> 0.90 s/turn; 6 games 3.8 -> 4.0 turns per second in all. Byte-identical CSV logs.
+WORKER_APP_OPTIONS = (("TickIntervalInHZ", 0),)
 # Saves without the minimap picture: the game draws it on the GPU for every save, and the rare base-game hang happens
 # inside the turn-start autosave (docs/known-limits.md). Not proven to help; it does not change the game state.
-WORKER_USER_OPTIONS = (("AddMinimapSnapshotToSaves", 0),)
+# No camera movement to the local player's combats and no historic-moment animation (they matter in a game observed as
+# player 0, such as the human-slot suite; camera only: the same CSV logs). NotificationCameraPan and
+# PlayerCombatCameraPan stay as the user has them: the mod's automation test turns them off in memory, and the suite
+# ContinuousAgesTransitionPanOn.json (CAAutoPan=1) keeps them on.
+WORKER_USER_OPTIONS = (("AddMinimapSnapshotToSaves", 0), ("LookAtPlayerTurnCombat", 0), ("LookAtPlayerOffTurnCombat", 0),
+                       ("PlayHistoricMomentAnimation", 0))
+# The game sets its own priority class: Normal at start, AboveNormal some seconds later, and BelowNormal when its window
+# loses the focus (measured 2026-11-01). With several games, the one that had the focus then runs at BelowNormal and the
+# others at AboveNormal; at 100% CPU it plays about half as fast, and the rare save hang came from such games. The game
+# sets its class again and again, so a check every 5 s held it only part of the time. A worker's runner
+# (run_autoplay.ps1) puts its game into a Windows job object with a priority-class limit: Windows then keeps every
+# process of the job at this class and ignores the game's own changes. keep_priority() here is the check-based fallback.
+WORKER_PRIORITY = "Normal"
 UI_PORT = 9444  # AppOptions UIDebugger: the first game that starts gets the port; the others run without it
 SHELL_FOLDERS = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
 DOCUMENTS_VALUES = ("Personal", "{F42EE2D3-909F-4907-8871-4C22FC0BF756}")
@@ -280,12 +297,14 @@ def restore_documents(yes: bool) -> int:
 def set_option(path: Path, key: str, value) -> None:
     """Sets an option in one of the game's option files (AppOptions.txt, UserOptions.txt): the file lists every
     option, commented out at its default (';Key value'); this writes 'Key value' in its place."""
-    text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+    raw = path.read_bytes().decode("utf-8", errors="replace") if path.exists() else ""
+    nl = "\r\n" if "\r\n" in raw else "\n"  # keep the file's line ends (the game writes CRLF)
+    text = raw.replace("\r\n", "\n")
     pattern = re.compile(rf"^[ \t]*;?[ \t]*{re.escape(key)}[ \t]+.*$", re.M)
     if not pattern.search(text):
         raise ValueError(f"{path.name} has no option {key}")
-    new = pattern.sub(f"{key} {value}", text, count=1)
-    if new != text:
+    new = pattern.sub(f"{key} {value}", text, count=1).replace("\n", nl)
+    if new != raw:
         with path.open("w", encoding="utf-8", newline="") as f:
             f.write(new)
 
@@ -293,8 +312,9 @@ def set_option(path: Path, key: str, value) -> None:
 def prepare(n: int, live: bool = False, copy_saves: tuple[str, ...] = ()) -> dict:
     """Makes or refreshes worker n. A new worker gets a copy of the real user's game folder (options, the Mods
     database, legal and account caches; not Logs, dumps or mods). Each call sets UIDebugger (1 only for a live
-    game: port 9444 must belong to the game that live.py drives), windowed mode, minimum graphics quality
-    (WORKER_GRAPHICS) and saves without a minimap picture (WORKER_USER_OPTIONS), and copies the real saves that
+    game: port 9444 must belong to the game that live.py drives), windowed mode, no frame cap
+    (WORKER_APP_OPTIONS), minimum graphics quality and VSync off (WORKER_GRAPHICS), saves without a minimap picture
+    and no automatic camera movement (WORKER_USER_OPTIONS), and copies the real saves that
     match copy_saves (for example the test saves CA_*.Civ7Save) into the worker's own Saves folder."""
     src = user_data(None)
     dst = user_data(n)
@@ -308,6 +328,8 @@ def prepare(n: int, live: bool = False, copy_saves: tuple[str, ...] = ()) -> dic
     link_caches(n)
     set_option(dst / "AppOptions.txt", "UIDebugger", 1 if live else 0)
     set_option(dst / "AppOptions.txt", "FullScreen", 0)
+    for key, value in WORKER_APP_OPTIONS:
+        set_option(dst / "AppOptions.txt", key, value)
     for key, value in WORKER_GRAPHICS:
         set_option(dst / "GraphicsOptions.txt", key, value)
     for key, value in WORKER_USER_OPTIONS:
@@ -405,6 +427,28 @@ def launch(n: int, args: list[str]) -> subprocess.Popen:
     proc = subprocess.Popen([str(BIN / EXE_NAME), *args], cwd=str(BIN), env=env(n))
     pid_file(n).write_text(json.dumps({"pid": proc.pid, "started": time.time()}), encoding="utf-8")
     return proc
+
+
+_PRIORITY_CLASS = {"Idle": 0x40, "BelowNormal": 0x4000, "Normal": 0x20, "AboveNormal": 0x8000, "High": 0x80}
+
+
+def keep_priority(pid: int, name: str = WORKER_PRIORITY) -> bool:
+    """Sets a game process to the worker priority class when it has another one (the game changes its own class at
+    start and on focus changes). Returns True when it changed the class."""
+    import ctypes
+    k = ctypes.windll.kernel32
+    k.OpenProcess.restype = ctypes.c_void_p
+    h = k.OpenProcess(0x0200 | 0x1000, False, int(pid))  # PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    try:
+        h = ctypes.c_void_p(h)
+        want = _PRIORITY_CLASS[name]
+        if k.GetPriorityClass(h) == want:
+            return False
+        return bool(k.SetPriorityClass(h, want))
+    finally:
+        k.CloseHandle(h)
 
 
 def close_reporters(parent_pid: int) -> list[int]:

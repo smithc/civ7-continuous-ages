@@ -111,17 +111,22 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   answered. An exact repeat (the same build and seed, iteration 20261031-174104 in a worktree at commit
   55a94c4) wrote the same logs line for line up to that point, then played on. So the game data and
   the mod's rules, which are deterministic, do not cause it; a timing race in the game is likely. Seen
-  again twice on 2026-11-01 in GPU study games **without the mod** (base game, minimum graphics quality:
-  Antiquity turn 68 with 4 games at once, and turn 2 with 6 games at once; 2 of 31 games at minimum
-  quality, 0 of 43 games at High that day; both times worker 2, which starts second). Each time
+  again three times on 2026-11-01 in GPU study games **without the mod** (base game, minimum graphics
+  quality: Antiquity turns 68, 2 and 59, with 4 or 6 games at once; 3 of about 50 games at minimum quality,
+  0 of 43 games at High that day; all three in worker 2). The game sets its own priority class
+  (BelowNormal after its window loses the focus), and worker 2's game ran at BelowNormal each time it was
+  checked, also at the third hang: at 100% CPU such a game gets much less CPU time than games at
+  AboveNormal, which can make a timing race more likely (inferred). Since then a worker's runner holds its
+  game at Normal (a job object; docs/development.md, Parallel games); no hang in the next 18 games. Each time
   the game stopped inside the autosave at the start of a turn, with the same log lines:
   `Serializer.log` ends with `writing Game State to buffer` and `waiting for request of type SAVE` (no
   `Game State to storage`), and `net_message_debug.log` ends with `Queuing Messages Start, State =
-  kReceiveAppMessage_SaveInProgress`. 3 hangs in more than 200 test games. The test runner closes a game
+  kReceiveAppMessage_SaveInProgress`. 4 hangs in more than 250 test games. The test runner closes a game
   whose logs have not changed for 10 minutes (5 in a parallel worker), and the report says `HANG FAIL`:
   repeat the run (`regression.py` runs a hung item once more by itself). Workers save without the minimap
   picture (`AddMinimapSnapshotToSaves 0`), which the game draws on the GPU for each save; whether that
-  makes the hang rarer is not known yet. Open: is the hang more frequent at minimum quality?
+  makes the hang rarer is not known yet. Open: does the priority hold stop the hang, or was it the CPU
+  load at minimum quality?
 - **Extra units for a civ that keeps its civ (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
   "legacy" civ of the new age with the Test of Time civic Syncretism (`MOD_SYNCRETISM`,
   `EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE`), with that civ's traits (`LegacyCivilizationTraits`), and
