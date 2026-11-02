@@ -26,9 +26,7 @@ const from = row.Unit, to = row.UpgradeUnit;
 const capital = Players.get(me).Cities.getCityIds().map((id) => Cities.get(id)).find((c) => c?.isCapital).location;
 const unitsOf = (type) => Players.get(me).Units.getUnitIds().map((id) => Units.get(id)).filter((u) => GameInfo.Units.lookup(u.type)?.UnitType === type);
 Players.grantYield(me, YieldTypes.YIELD_GOLD, 5000);
-caLive.createUnit(from, capital.x, capital.y);
-await settle();
-const unit = unitsOf(from)[0];
+const unit = await caLive.createUnitAndWait(from, capital.x, capital.y);  // up to 15 s (a fixed 2 s can be too short)
 if (!unit) return { ok: false, error: `no ${from} was placed`, checks };
 const can = () => { const r = Game.UnitCommands.canStart(unit.id, "UNITCOMMAND_UPGRADE", {}, false); return { ok: !!r?.Success, reasons: r?.FailureReasons ?? [] }; };
 const c0 = can();
@@ -41,7 +39,7 @@ expect(`past the gate: ${from} may upgrade to ${to}`, c1.ok, { ...c1, gold: Play
 if (c1.ok) {
   const before = unitsOf(to).length;
   Game.UnitCommands.sendRequest(unit.id, "UNITCOMMAND_UPGRADE", {});
-  await settle(3000);
+  await caLive.waitFor(() => unitsOf(to).length > before);  // up to 15 s (a fixed 3 s can be too short)
   expect(`the unit is now a ${to}`, unitsOf(to).length === before + 1, { from: unitsOf(from).length, to: unitsOf(to).length });
 }
 return { ok: checks.every((c) => c.ok), from, to, failed: checks.filter((c) => !c.ok), checks };

@@ -35,8 +35,7 @@ const state = (u) => u ? { x: u.location.x, y: u.location.y, ocean: onOcean(u), 
 const hasTehina = !!GameInfo.Units.lookup("UNIT_TEHINA");
 let tehina = null;
 if (hasTehina) {
-  caLive.createUnit("UNIT_TEHINA", ocean[0].x, ocean[0].y);
-  await settle();
+  await caLive.createUnitAndWait("UNIT_TEHINA", ocean[0].x, ocean[0].y);  // up to 15 s (a fixed 2 s can be too short)
   tehina = mine("UNIT_TEHINA").find(onOcean);
   expect("behind the gate: a Tehina on deep ocean", !!tehina, { asked: ocean[0], tehinas: mine("UNIT_TEHINA").map(state) });
   if (tehina) {
@@ -48,8 +47,7 @@ if (hasTehina) {
 }
 // Past the gate: damage until Shipbuilding.
 expect("gate granted", await grant(GATE));
-caLive.createUnit("UNIT_COG", ocean[1].x, ocean[1].y);
-await settle();
+await caLive.createUnitAndWait("UNIT_COG", ocean[1].x, ocean[1].y);  // up to 15 s
 let cog = mine("UNIT_COG").find(onOcean);
 expect("past the gate: a Cog on deep ocean", !!cog, { asked: ocean[1], cogs: mine("UNIT_COG").map(state) });
 const before = { cog: cog?.Health.damage, tehina: tehina ? Units.get(tehina.id)?.Health.damage : null };

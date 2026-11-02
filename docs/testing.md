@@ -107,6 +107,16 @@ can name build options (`"build": [...]`); `live.py all` installs that build fir
 build at the end. Each scenario has a control step that must fail without the rule (for example "behind the
 gate: not met"), so a scenario cannot pass by accident.
 
+In the release set 20261101-191259 (6 games at once), `meet_distant.js` failed one setup check (run
+20261101-200105-w1): the game created the ship after the fixed 2-second wait, so the check found no ship.
+The ship was in place for the control step, and the 4 checks of the rule passed. Three other scenarios had
+the same fixed waits. Now `caLive.createUnitAndWait` (it waits up to 15 seconds for the new unit) and
+`caLive.waitFor` (it polls a condition for up to 15 seconds), in `checks/ca-live.js`, replace the fixed waits
+after a unit creation in `meet_distant.js`, `ocean_damage.js`, `deep_ocean_turn.js` and
+`upgrade_across_ages.js`, after the move in `deep_ocean_turn.js`, and after the upgrade in
+`upgrade_across_ages.js`. The 4 scenarios passed with these changes in one worker, with no other game
+(`build/scenarios/20261102-094405-w1-all.md`: 4 of 4, all 23 checks). They have not run next to other games yet.
+
 | Scenario | Proves | Settings |
 | --- | --- | --- |
 | `rule_2i.js` | Rule 2i: before its Breakthrough a civ trains the base unit that its unique unit replaces; after it, only the unique unit. A base unit of another civ's pair stays enabled. | Ming; Mughal |

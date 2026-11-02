@@ -41,14 +41,28 @@ const SHIP = "UNIT_COG";
 const shipAt = (p) => Players.get(me).Units.getUnitIds().map((id) => Units.get(id))
   .find((u) => GameInfo.Units.lookup(u.type)?.UnitType === SHIP && u.location.x === p.x && u.location.y === p.y);
 async function sail(label) {
-  caLive.createUnit(SHIP, route.c.x, route.c.y);
-  await settle();
+  // Up to 15 s for the new ship (a fixed 2 s can be too short with several games at once). The ship ordered is the
+  // one on C: an earlier ship that stayed there (behind the gate), or the new one.
+  await caLive.createUnitAndWait(SHIP, route.c.x, route.c.y);
   const ship = shipAt(route.c);
   if (!ship) return { placed: false };
   const args = { X: route.o2.x, Y: route.o2.y };
   const can = Game.UnitOperations.canStart(ship.id, UnitOperationTypes.MOVE_TO, args, false);
   if (can?.Success) Game.UnitOperations.sendRequest(ship.id, UnitOperationTypes.MOVE_TO, args);
   await settle(4000);
+  if (can?.Success) {
+    // The game handles the move a moment later, and a fixed 4 s can end too soon. Wait (up to 15 s in all) until the
+    // ship is on O2, or has left C and kept its plot for 2 s. Behind the gate it stays on C, so that case waits 15 s.
+    const pos = () => { const v = Units.get(ship.id); return v ? `${v.location.x},${v.location.y}` : "gone"; };
+    const t0 = Date.now() - 4000;
+    let last = pos(), since = Date.now();
+    while (Date.now() - t0 < 15000) {
+      const p = pos();
+      if (p !== last) { last = p; since = Date.now(); }
+      if (p === `${route.o2.x},${route.o2.y}` || (p !== `${route.c.x},${route.c.y}` && Date.now() - since >= 2000)) break;
+      await settle(500);
+    }
+  }
   const u = Units.get(ship.id);
   const at = u ? { x: u.location.x, y: u.location.y } : null;
   return { placed: true, label, canStart: !!can?.Success, at, onO1: !!at && at.x === route.o1.x && at.y === route.o1.y,

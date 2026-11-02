@@ -37,8 +37,9 @@ coast.sort((a, b) => a.d - b.d);
 if (coast.length === 0) return { ok: false, error: "no free water near the target capital", tc };
 const ships = () => Players.get(me).Units.getUnitIds().map((id) => Units.get(id))
   .filter((u) => GameInfo.Units.lookup(u.type)?.UnitType === SHIP).map((u) => ({ x: u.location.x, y: u.location.y, d: dist(u.location, tc) }));
-caLive.createUnit(SHIP, coast[0].x, coast[0].y);
-await settle();
+// The game creates the unit a moment later. With 6 games at once, a fixed 2 s was too short (regression
+// 20261101-191259, run 20261101-200105-w1: the ship came after the check). createUnitAndWait waits up to 15 s.
+await caLive.createUnitAndWait(SHIP, coast[0].x, coast[0].y);
 const near = ships().filter((s) => s.d <= 4);
 expect("behind the gate: a ship near the distant capital", near.length > 0, true, { asked: coast[0], ships: ships() });
 await caLive.endTurn();
@@ -51,8 +52,7 @@ await caLive.endTurn();
 let met = Game.Diplomacy.hasMet(me, target.id);
 let how = "same ship, next turn";
 if (!met) {  // a new sight event, in case the engine checks contact only when sight changes
-  caLive.createUnit(SHIP, coast[Math.min(1, coast.length - 1)].x, coast[Math.min(1, coast.length - 1)].y);
-  await settle();
+  await caLive.createUnitAndWait(SHIP, coast[Math.min(1, coast.length - 1)].x, coast[Math.min(1, coast.length - 1)].y);
   await caLive.endTurn();
   met = Game.Diplomacy.hasMet(me, target.id);
   how = "second ship, next turn";

@@ -118,6 +118,29 @@
       Game.PlayerOperations.sendRequest(pid, "CREATE_ELEMENT", args);
       return { canStart: !!can?.Success, reasons: can?.FailureReasons ?? [] };
     },
+    // Polls test() every 500 ms until it returns a true value or timeoutMs has passed, and returns its last value.
+    // For a request that the game handles a moment later: with several games at once, a fixed wait can end too soon.
+    async waitFor(test, timeoutMs = 15000) {
+      const t0 = Date.now();
+      let value = test();
+      while (!value && Date.now() - t0 < timeoutMs) {
+        await sleep(500);
+        value = test();
+      }
+      return value;
+    },
+    // createUnit, then wait (up to timeoutMs) for the new unit of that type. Returns the unit, or null. In regression
+    // 20261101-191259 (6 games at once) a ship came more than 2 s after the request (meet_distant.js). A unit id is
+    // keyed as the base game's ComponentID.toString does (owner;id;type).
+    async createUnitAndWait(type, x, y, pid = localId(), timeoutMs = 15000) {
+      const key = (id) => `${id?.owner};${id?.id};${id?.type}`;
+      const ids = () => Players.get(pid)?.Units?.getUnitIds() ?? [];
+      const old = new Set(ids().map(key));
+      caLive.createUnit(type, x, y, pid);
+      const fresh = () => ids().filter((id) => !old.has(key(id))).map((id) => Units.get(id))
+        .find((u) => u && GameInfo.Units.lookup(u.type)?.UnitType === type) ?? null;
+      return await caLive.waitFor(fresh, timeoutMs);
+    },
     // A world transition as the human starts it (the legends screen's button) after the age has ended. In a normal
     // game (live.py start --manual) the game then shows the shell's civ selection screen, where live.py makes slot
     // 0's choice; in an automation test the game has already made the transition itself.
