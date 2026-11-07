@@ -27,7 +27,7 @@ lead and snowball.
 - **Civics have their own Breakthroughs.** Research the civic Breakthrough of an age with culture to
   open that age's civics, even before your tech Breakthrough.
 - **No reset at an age transition.** Cities stay cities, armies keep all their units, gold is
-  not capped, old resources stay, and earned policies stay.
+  not capped, old resources stay (with their effects), and earned policies stay.
 - **Content waits for your age.** Later-age techs, units, buildings, unique items and civ abilities
   need that age's Breakthrough tech, and later-age civics need the civic Breakthrough, even after the
   world has moved on.

@@ -186,6 +186,8 @@ class WorldBuild:
         self.native_traits = {r[0] for r in self.sim.db.execute("SELECT DISTINCT TraitType FROM TraitModifiers")}
         self.items: list[str] = []
         self.text_items: list[str] = []
+        self.kept_resources: list[dict] = []  # rule 2j (kept_resources), set by main()
+        self.text_preferred: dict[str, str] = {}  # rule 2j tooltips: tag -> the age whose text is used
 
     # -- content ---------------------------------------------------------------
     def copy_content(self, groups):
@@ -290,6 +292,18 @@ class WorldBuild:
                         f = mod.folder / item
                         if "en_us" in item and f.exists():
                             tags |= {el.get("Tag") for el in ET.parse(f).iter() if el.get("Tag")}
+        # Rule 2j: a kept resource's tooltip comes from its last valid age, when that age's text has it. Otherwise the
+        # first age's copy won (the Antiquity "+2 Food" of Dates in the Modern world; Cloves "attainable in the next age").
+        want = ({} if "oldres" in disabled_rules(self.args) else
+                {e["tooltip"]: e["last"] for e in self.kept_resources if e["tooltip"] and e["tooltip"] not in tags})
+        defined = set()
+        for age, mod, grp in groups:
+            for tag, paths in grp.actions:
+                if tag == "UpdateText" and want:
+                    for item in paths:
+                        if "en_us" in item and item.rsplit("/", 1)[-1] not in TEXT_EXCLUDE:
+                            defined |= {(age, el.get("Tag")) for el in ET.parse(mod.folder / item).iter() if el.get("Tag") in want}
+        self.text_preferred = {k: a for k, a in want.items() if (a, k) in defined}
         for age, mod, grp in groups:
             for tag, paths in grp.actions:
                 if tag != "UpdateText":
@@ -301,7 +315,7 @@ class WorldBuild:
                     for table in list(root):
                         for row in list(table):
                             key = row.get("Tag")
-                            if key in tags:
+                            if key in tags or self.text_preferred.get(key, age) != age:
                                 table.remove(row)
                             elif key:
                                 tags.add(key)
@@ -516,6 +530,18 @@ class WorldBuild:
                       f"MaxPoints_Long = {points} WHERE AgeType = '{self.world}';", ""]
         baseline_lines, defs, baseline_report = self.baseline_adapter()
         defs += [] if "2i" in disabled_rules(args) else replace_gap_modifiers(self.replace_gaps)  # rule 2i
+        # Resources of an earlier age stay on the map (TRANSITION_EDITS), but their effects are GameModifiers of each age's
+        # resources.xml (system data), so in a later world they gave only their base yield and their text described an
+        # effect they did not have (a player report of 2026-11-01). See kept_resources().
+        lines += ["-- 2j. Resources of an earlier age that stay on the map (not valid in this world) keep the effects of",
+                  "--     their last valid age: copies CA_RES_<id> of that age's definitions (another age can use the same id)."]
+        for e in ([] if "oldres" in disabled_rules(args) else self.kept_resources):
+            for m in e["effects"]:
+                lines += [f"INSERT INTO GameModifiers (ModifierId) VALUES ('{m.get('id')}');",
+                          f"INSERT OR IGNORE INTO ModifierMetadatas (ModifierID, FieldName, String) "
+                          f"VALUES ('{m.get('id')}', 'ResourceType', '{e['resource']}');"]
+                defs.append(m)
+        lines += [""]
         lines += ["-- 5. Baseline adapters."] + baseline_lines + [""]
         # The Exploration civ trait's free Cog came at the world transition to civs still in Antiquity,
         # and a second time to civs that got it at their gate (iteration 20261024-224137). One source:
@@ -1258,6 +1284,54 @@ def replace_gap_modifiers(gaps) -> list[ET.Element]:
     return out
 
 
+def kept_resources(sims: dict) -> dict[str, list[dict]]:
+    """Rule 2j, per world age: the resources that can stay on the map from an earlier world although they are not valid
+    in this one (the base game removes them at the transition: removeObsoleteResources). For each: its last valid age,
+    copies (id CA_RES_<id>) of that age's resource effects, and its tooltip tag. An effect is a GameModifiers row of
+    that age whose definition has the resource in its ResourceType argument. The copy comes from the definition in that
+    age's own files: the mod also loads other ages' definitions, and the first one loaded wins an id (Dates: the
+    Antiquity +2 in the Modern world, not the Exploration +3). A resource with no such row (Camels: BonusResourceSlots
+    on its own row) gets none. Resource classes stay the world's (a system; Treasure does not exist in Modern)."""
+    files: dict[str, dict] = {}
+
+    def definition(sim, mid):
+        f = sim.modifiers.get(mid)
+        if f is None:
+            return None
+        if f not in files:
+            files[f] = {el.get("id"): el for el in ET.parse(f).getroot() if c.strip_ns(el.tag) == "Modifier"}
+        return files[f].get(mid)
+
+    valid = defaultdict(set)
+    for sim in sims.values():
+        for res, age in sim.db.execute("SELECT ResourceType, AgeType FROM Resource_ValidAges"):
+            valid[res].add(age)
+    out = {}
+    for i, world in enumerate(AGES):
+        entries = []
+        for res in sorted(valid):
+            earlier = [a for a in AGES[:i] if a in valid[res]]
+            if world in valid[res] or not earlier:
+                continue
+            last = earlier[-1]
+            sim = sims[last]
+            effects = []
+            for (mid,) in sim.db.execute("SELECT ModifierId FROM GameModifiers ORDER BY ModifierId"):
+                el = definition(sim, mid)
+                if el is None:
+                    continue
+                named = [(a.text or "").split(",") for a in el
+                         if c.strip_ns(a.tag) == "Argument" and a.get("name") == "ResourceType"]
+                if any(res in [v.strip() for v in vals] for vals in named):
+                    copy = ET.fromstring(ET.tostring(el))
+                    copy.set("id", f"CA_RES_{mid}")
+                    effects.append(copy)
+            row = sim.db.execute("SELECT Tooltip FROM Resources WHERE ResourceType = ?", (res,)).fetchone()
+            entries.append({"resource": res, "last": last, "tooltip": row[0] if row else None, "effects": effects})
+        out[world] = entries
+    return out
+
+
 # The proof of each rule (docs/testing.md, "Keeping the tests current"): the check or scenario that fails when the rule
 # breaks. The build stops when the rules SQL has a rule id ("-- 2i. ...") that is not here, so a new rule names its proof.
 RULE_PROOFS = {
@@ -1270,6 +1344,7 @@ RULE_PROOFS = {
     "2g": "upgrade_across_ages.js",
     "2h": "civic and policy continuity (CONTINUITY FAIL); a later-age civic tree shown early (CIVICGATE FAIL)",
     "2i": "rule_2i.js (Ming, Mughal); REPLACE (FAIL); base unit started after the gate (FAIL); kept base unit converted (LEAK FAIL)",
+    "2j": "old_resources.js (an Antiquity resource assigned in the Exploration world gives its Antiquity effect)",
     "3": "GOV-AGE (a government of another age: FAIL)",
     "4": "test setting",
     "5": "meet_distant.js (meeting flag); deep_ocean_turn.js and ocean_damage.js (ocean travel); BUILD and GATE (reports)",
@@ -1294,7 +1369,8 @@ def check_rule_proofs(sql: str, world: str) -> None:
 # Negative controls (build_mod.py --disable-rule NAME, test builds only): a build without a rule, to show that
 # the rule's test fails without it (docs/testing.md, "A new check must fail once").
 DISABLE_RULES = {"2i": "unique units block their base units again", "6b": "no deep-ocean damage in the Antiquity world",
-                 "meet": "no meeting flag at the Exploration Breakthrough", "civic-gate": "the 0.2.1 civic dead end"}
+                 "meet": "no meeting flag at the Exploration Breakthrough", "civic-gate": "the 0.2.1 civic dead end",
+                 "oldres": "kept resources of an earlier age have no effects and the first age's text (up to 0.4.0)"}
 
 
 def disabled_rules(args) -> set:
@@ -1442,7 +1518,11 @@ def main() -> None:
     abil_defs, abil_sql, abil_skipped = civ_ability_modifiers(game, dlc_sims)
     print(f"civ abilities gated: {len(abil_defs)} modifiers, {len(abil_sql)} trait rows; left out: {abil_skipped}")
     upgrades = cross_age_upgrades(dlc_sims)
+    kept = kept_resources(dlc_sims)
+    print("kept resources with the effects of their last valid age (rule 2j): " + "; ".join(
+        f"{NAME[w]} {[(e['resource'][9:], len(e['effects'])) for e in v]}" for w, v in kept.items() if v))
     for b in builds:
+        b.kept_resources = kept[b.world]
         b.starters = starters
         b.civ_content = civ_content
         b.replace_gaps = gaps
@@ -1606,6 +1686,10 @@ def write_report(builds) -> None:
         out += [f"- {NAME[a]} civ content: {len(v['trees'])} civic trees without a prereq gate (shown by rules 5e, 5i); "
                 f"items without unlock: {', '.join(v['items']['KIND_UNIT'] + v['items']['KIND_CONSTRUCTIBLE']) or 'none'}"
                 for a, v in b.civ_content.items()]
+        for e in b.kept_resources:
+            src = NAME[b.text_preferred[e["tooltip"]]] if e["tooltip"] in b.text_preferred else "first age that has it, or this world"
+            out.append(f"- Kept resource (rule 2j) {e['resource']}: last valid age {NAME[e['last']]}, effects "
+                       f"{', '.join(m.get('id') for m in e['effects']) or 'none'}; tooltip {e['tooltip']} from {src}")
         out += [f"- Issue: {s}" for s in r["issue_samples"]] + [f"- Broken reference: {s}" for s in r["fk_samples"]]
         for key, title in [("trait_rows", "Trait-modifier rows left out"), ("dropped_rows", "Rows whose key exists (kept the world's)"),
                            ("system_types", "System types left with their age"), ("dangling", "Rows pointing to content not loaded"),

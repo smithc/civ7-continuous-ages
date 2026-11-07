@@ -95,7 +95,7 @@ replaces the game's transition script with a copy that has the reset steps remov
 | Cities | All cities except the capital become towns | Cities stay cities |
 | Gold and influence | Capped | Not capped |
 | Buildings and improvements | Kept; the base game's rules for older-age buildings apply | Kept; the same rules apply |
-| Old-age resources | Removed from the map | Stay on the map (lagging civs still use them) |
+| Old-age resources | Removed from the map | Stay on the map, with the effects of their last valid age |
 | Policies | The new age's trees replace the old ones | Every policy the civ has earned stays (see below) |
 | Traditions | Kept | Kept |
 | Civ | The civ takes a new civ (or keeps its civ with Test of Time) | Unchanged: the game still decides (see [Civs and ages](civs-and-ages.md)) |
@@ -118,6 +118,19 @@ No city becomes a town, and gold and influence are not capped.
   transition, the game replaces some resources on islands with treasure resources (1 to 18 plots in the
   test runs), because treasure fleets are a world system of the Exploration age. The test runs check that no
   other resource leaves the map (`RESOURCES` against `RELOADRES`).
+- **A kept resource keeps its effects (rule 2j).** Some kept resources are not valid in the new world age
+  (the base game removes them): Hides, Lapis Lazuli, Salt and Wool in the Exploration world, and 19 in the
+  Modern world. A resource's effects belong to each age's data, so up to version 0.4.0 such a resource gave only
+  its base yield, and its text described an effect it did not have (a player report). Now it has the effects
+  of its last valid age: Salt in the Exploration world gives +20% Production towards units again, and Dates in the
+  Modern world gives its Exploration +3 Food and +3 Happiness. Its text is the text of that age. The generator
+  finds the resources and their effects in the game data (`kept_resources` in `build_mod.py`; the build report
+  lists them). Camels needs no effect row: its extra resource slots are part of its own data. Each resource keeps
+  the world's resource class. For example, Rubies is a Bonus resource in the Modern world, not a Treasure
+  resource (that class does not exist there).
+- As for any resource, an effect counts only for a resource that is assigned to a settlement and has its
+  matching improvement (or for an empire resource such as Iron). In the Modern world, kept Iron gives its
+  Exploration effect: +1 Combat Strength for infantry for each Iron, up to +6.
 - New-age resources do not replace a tile that has a district or an improvement. Without this rule,
   the transition removed improvements and districts.
 - On the Earth map, the generic resource step is used. The Earth map's own step removed rural

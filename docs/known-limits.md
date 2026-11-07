@@ -80,6 +80,11 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
 
 ## Open checks
 
+- **Balance of kept military resources in the Modern world (rule 2j).** Kept Iron gives its Exploration effect in
+  the Modern world: +1 Combat Strength for infantry for each Iron, up to +6, for every civ that holds Iron (an empire
+  resource: no assignment is needed). Kept Salt gives +20% Production towards units. The base game removes both
+  at the Modern transition. Not measured yet. If it is too strong, rule 2j can leave out or limit combat and unit
+  effects.
 - **An AI civ of a later age took a civ of an earlier age at a transition.** In a game with
   Time-Tested civs (iteration 20261031-121009), the AI civ Ming (an Exploration civ played in
   Antiquity) took Mississippian, an Antiquity civ, in the Exploration world. The AI mode Mirroring

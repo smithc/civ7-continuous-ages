@@ -5,5 +5,6 @@
 	{"file": "ocean_damage.js", "set": ["Player0Civ=CIVILIZATION_TONGA"], "proves": "rule 6b: deep-ocean damage past the gate until Shipbuilding; none behind the gate (Tehina) (a player report)"},
 	{"file": "deep_ocean_turn.js", "set": [], "proves": "rule 6: past the gate, deep ocean ends a ship's move until Shipbuilding; behind the gate a ship does not enter deep ocean"},
 	{"file": "gate_content.js", "set": [], "proves": "goals 3 and 5: an Exploration unit and building are locked before the tech Breakthrough and usable after it"},
-	{"file": "upgrade_across_ages.js", "set": [], "proves": "rule 2g: an Antiquity unit upgrades to its Exploration successor after the gate, not before"}
+	{"file": "upgrade_across_ages.js", "set": [], "proves": "rule 2g: an Antiquity unit upgrades to its Exploration successor after the gate, not before"},
+	{"file": "old_resources.js", "set": ["StartAge=AGE_EXPLORATION"], "proves": "rule 2j: a resource of an earlier age (Hides) assigned in the Exploration world gives its Antiquity effect (a player report)"}
 ]

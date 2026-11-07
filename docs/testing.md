@@ -125,6 +125,7 @@ after a unit creation in `meet_distant.js`, `ocean_damage.js`, `deep_ocean_turn.
 | `deep_ocean_turn.js` | Rule 6: past the gate, a ship ordered across deep ocean stops on the first deep-ocean plot until Shipbuilding; with Shipbuilding it goes on. Behind the gate a ship does not enter deep ocean, although the engine's `canStart(MOVE_TO)` says yes. | Egypt |
 | `gate_content.js` | Goals 3 and 5: an Exploration unit (Knight) and building (Wharf) are locked before the tech Breakthrough and usable after it. | Egypt |
 | `upgrade_across_ages.js` | Rule 2g: a Swordsman cannot upgrade to a Man-at-Arms before the gate; after the gate and Heraldry, the upgrade works. | Egypt |
+| `old_resources.js` | Rule 2j: on turn 1 of an Exploration game, Hides (valid only in Antiquity) put on the Camp plot of the capital's Ivory and assigned gives its Antiquity effect (+3 Production). Controls: Ivory unassigned, then put back and assigned, changes the yields. Passed in 20261107-142234-w1. A resource counts only when assigned, and in these test games assignment is open only on turn 1, so the scenario does not end a turn. | Egypt, `StartAge=AGE_EXPLORATION` |
 | `probe_disable.js`, `probe_disable_gate.js` | Probes (not in the list): which form of the disable effect works. | `--probe disable`, `--probe disable_gate` |
 
 ## Negative controls
@@ -137,6 +138,7 @@ Each new check was shown to fail without its rule (rule 2 below):
 | `iterate.py --disable-rule civic-gate` (the 0.2.1 dead end again), 130 turns | `BANK` failed for all 6 civs (culture banks of 22 to 47 turns of yield, growing), and `CIVICGATE` failed (20261031-132723). |
 | `GOV-AGE` on the records of earlier runs | Failed on every run before the government fix (for example 20261029-202958, 20261031-125020). |
 | Rule 2i's first form (`PermanentlyDisabled`, not permanent) | Failed in the game (20261031-121009: Merchants after the gate); the probe showed why. |
+| `build_mod.py --disable-rule oldres`, then `old_resources.js` | Failed for the right reason: the assigned Hides gave nothing, and both controls passed (20261107-142621-w1). |
 
 ## Coverage of the design goals
 
@@ -158,6 +160,7 @@ reported only, or it depends on the AI; **none** = no check. The proof of each n
 | Rule 6 deep ocean ends the turn until Shipbuilding | `deep_ocean_turn.js` | strong |
 | Rule 6b deep-ocean damage | `ocean_damage.js` | strong |
 | Rule 2g upgrades across ages | `upgrade_across_ages.js` | strong |
+| Rule 2j kept resources keep their effects | `old_resources.js` (one resource, Hides, in the Exploration world); the build report lists each kept resource with its effects and text source | strong for the effect in the Exploration world; the Modern world and the tooltip text: build report only |
 | Rule 3 governments of the world age | `GOV-AGE` (FAIL) | strong |
 | Rule 5e abilities after the gate; 5f card grants arrive | reported at the reload | weak |
 | Catch-up Research costs | `CATCHUP`: research speed against the base cost, median per node group (FAIL outside 0.85 to 1.20 of the expected 2x, 1.5x or 1x) | strong in a run through a transition; from a save: not judged (no base cost) |
