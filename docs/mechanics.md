@@ -166,8 +166,8 @@ Breakthrough (for example the Exploration Dedication that grants Piety). (18 car
 A civ can use content of its own age and of earlier ages. Content of a later age needs that age's
 Breakthrough. This applies even after the world has moved on:
 
-- techs of a later age, and units, buildings, improvements, wonders and projects that they unlock (except the
-  projects that feed a world system: see [World systems](#world-systems));
+- techs of a later age, and units, buildings, improvements, wonders and projects that they unlock (the projects
+  that feed a world system have their own rules: see [World systems](#world-systems));
 - civics of a later age, and what they unlock, need the civic Breakthrough of that age (see
   [Civics](#civics));
 - "starter" units and buildings that a later age gives at its start;
@@ -251,22 +251,32 @@ These systems stay with the world age and start at the world transition, as in t
 
 A leading civ therefore cannot score the next age's legacy paths before the world reaches that age.
 
-**Projects that feed a world system (rule 2k).** A project that gives victory points, or that a legacy path or a
-victory of its age requires, is built only in its own world age, as in the base game. In other worlds a city cannot
-start it, and the tech tree does not show it. There are 11 such projects:
+**Projects that feed a world system (rules 2k and 2l).** 11 projects give victory points, or a legacy path or a
+victory of their age requires them. The game forgets which projects a civ completed at each world transition, so up
+to version 0.4.0 a civ built Chart the Stars and Spherical Earth again in each later world (a player report), with
+their victory points, Altar purchases and attribute point each time. The mod now puts each project in one of two
+groups, found in the game data (`project_groups` in `build_mod.py`):
 
-- Antiquity: Chart the Stars, Spherical Earth;
-- Exploration: Heliocentric Model, Invent Calculus;
-- Modern: Break the Sound Barrier, Trans-Oceanic Flight, Launch Satellite, Launch Rocket, Crewed Space Flight Prep,
-  Crewed Space Flight Research, Operation Ivy.
+- **Final projects (rule 2k): built only in their own world age, as in the base game.** A project is final when a
+  victory requires it, when it grants legacy path points itself or needs a completed legacy path (a legacy path exists
+  only in its world age), when it can be repeated, or when it has no single tech unlock. Today: Launch Rocket and
+  Operation Ivy (the Modern science and military victories) and Crewed Space Flight Prep (repeatable). In other worlds
+  a city cannot start them, and the tech tree does not show them.
+- **Achievement projects (rule 2l): built at the civ's own age, in any world, once per game.** Today: Chart the
+  Stars, Spherical Earth, Heliocentric Model, Invent Calculus, Break the Sound Barrier, Trans-Oceanic Flight, Launch
+  Satellite, Crewed Space Flight Research. A civ with the tech can build one in any world: a leading civ builds
+  Heliocentric Model in the Antiquity world, and a lagging civ builds Chart the Stars in the Exploration world. When the
+  project is complete, the civ gets a hidden narrative tag, and a civ with the tag cannot build the project again. The
+  triumphs of the project's age read the tag instead of "completed in this world": a project built early counts when
+  the world reaches its age. For example, Heliocentric Model built in the Antiquity world and Invent Calculus built in
+  the Exploration world earn the Exploration science triumph. The tag is an ordinary game mechanism (the base game's
+  narrative chains read tags across ages), and no screen shows it.
 
-Why: the game forgets which projects a civ completed at each world transition. Up to version 0.4.0 these projects
-were content, so a civ built Chart the Stars and Spherical Earth again in each later world (a player report), with
-their victory points, Altar purchases and attribute point each time. A leading civ could also build Heliocentric Model
-in the Antiquity world, and Launch Satellite in the Exploration world, and then build them again in their own world.
-A lagging civ that did not build an age's projects loses them at the transition, as in the base game. Victory points
-from tech masteries and wonders stay content: they cannot repeat. The generator finds the projects in the game data
-(`world_projects` in `build_mod.py`), and the build stops if an effect would unlock one of them.
+Effect on play: a leading civ can collect an achievement's rewards early (victory points, the attribute point, naval
+movement), and its triumph counts when the world reaches that age. Break the Sound Barrier is an achievement, and its
+Modern triumph counts toward the Modern science legacy path that Launch Rocket needs: a civ that built it early starts
+the Modern world one triumph ahead. The build stops if an effect would unlock a gated project, or if a triumph cannot
+be rewritten (a game patch).
 
 Two Exploration rules are not world systems, because they follow from ocean travel, which a civ gets at
 its own Breakthrough: deep-ocean damage and meeting the civs of the Distant Lands (see

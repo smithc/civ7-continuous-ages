@@ -1,11 +1,13 @@
-// Scenario test of rule 2k (build: build_mod.py --install --checks; suite: ContinuousAgesLive.json, Antiquity world, or
-// --set StartAge=AGE_EXPLORATION). Projects that feed a world system (victory points, a legacy path) are built only in
-// their own world age (a player report of 2026-11-01: Chart the Stars and Spherical Earth were built again in each
-// later world; a leading civ could also build Heliocentric Model in the Antiquity world).
+// Scenario test of rules 2k and 2l (build: build_mod.py --install --checks; suite: ContinuousAgesLive.json, Antiquity
+// world, or --set StartAge=AGE_EXPLORATION). Projects that feed a world system (victory points, a legacy path) are FINAL
+// (built only in their own world age, rule 2k) or ACHIEVEMENTS (built at the civ's own age in any world, once per game,
+// rule 2l; once per game is proven by project_achievements.js).
 // For each such project with no building prerequisite, the civ gets its tech (with its mastery when the project needs
 // it), then the capital is asked whether it can start the project:
 //   control: a project of this world age can be started
-//   test: a project of another world age cannot. Without the rule (--disable-rule worldproj) it can: this check fails.
+//   test: an achievement of another world age can be started (rule 2l: RequiresUnlock + the unlock while the civ has
+//   the tech); a final project of another world age cannot (rule 2k; all finals need a building today, so none is
+//   tested here).
 const me = GameContext.localPlayerID;
 const settle = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
 const checks = [];
@@ -22,7 +24,10 @@ const canStart = (p) => !!Game.CityOperations.canStart(cap.id, CityOperationType
 // GameInfo tables can be iterated but are not arrays.
 const unlocks = Array.from(GameInfo.ProgressionTreeNodeUnlocks).filter((u) => u.TargetKind === "KIND_PROJECT");
 const tested = { own: 0, other: 0 }, skipped = [];
-for (const [p, ages] of Object.entries(list)) {
+// Rule 2l (branch explore/project-achievements): an ACHIEVEMENT can be started in any world once its tech is done; a
+// FINAL project only in its own world age (rule 2k). caWorldProjects: {project: {ages, final, why, node, depth, tag}}.
+for (const [p, group] of Object.entries(list)) {
+  const ages = group.ages;
   const info = GameInfo.Projects.lookup(p);
   const u = unlocks.find((r) => r.TargetType === p);
   if (!info || !u || info.PrereqConstructible) {
@@ -40,11 +45,14 @@ for (const [p, ages] of Object.entries(list)) {
   }
   await settle(1500);
   const own = ages.includes(age);
+  const want = own || !group.final;
   const can = canStart(p);
   tested[own ? "own" : "other"]++;
   expect(`${p}: its tech has the depth the project needs`, depth() >= u.UnlockDepth, { node: u.ProgressionTreeNodeType, need: u.UnlockDepth, depth: depth() });
-  expect(own ? `control: ${p} (this world age) can be started` : `test: ${p} (${ages.join("/")}) cannot be started in ${age}`,
-    can === own, { can, node: u.ProgressionTreeNodeType, depth: depth(), need: u.UnlockDepth, hidden: u.Hidden, requiresUnlock: info.RequiresUnlock });
+  expect(own ? `control: ${p} (this world age) can be started`
+    : group.final ? `test: final ${p} (${ages.join("/")}) cannot be started in ${age}`
+    : `test: achievement ${p} (${ages.join("/")}) can be started in ${age} by a civ with its tech`,
+    can === want, { can, final: group.final, node: u.ProgressionTreeNodeType, depth: depth(), need: u.UnlockDepth, requiresUnlock: info.RequiresUnlock });
 }
 expect("at least one project of this world age and one of another age were tested", tested.own > 0 && tested.other > 0, { tested, skipped });
 return { ok: checks.every((c) => c.ok), failed: checks.filter((c) => !c.ok), checks, skipped };

@@ -57,8 +57,9 @@ follow the world. Systems need setup that the game does only at a world transiti
 Distant Lands for treasure fleets), so they cannot start early for one civ.
 
 Some items look like content but have a use only through a world system. **Such an item follows the system it
-feeds.** Projects that give victory points, or that a legacy path or a victory requires, are built only in their own
-world age (see [Mechanics](mechanics.md#world-systems)). A resource that stays on the map from an earlier age keeps
+feeds.** Projects that a victory requires are built only in their own world age. Other projects that give victory
+points or a triumph are built at the civ's own age, once per game, and their triumph counts when the world reaches
+that age (see [Mechanics](mechanics.md#world-systems)). A resource that stays on the map from an earlier age keeps
 the effects of its last valid age (see [Mechanics](mechanics.md#resources)). Religious units are an open question.
 
 ## What the mod does not change

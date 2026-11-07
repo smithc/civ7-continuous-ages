@@ -188,7 +188,8 @@ class WorldBuild:
         self.text_items: list[str] = []
         self.kept_resources: list[dict] = []  # rule 2j (kept_resources), set by main()
         self.text_preferred: dict[str, str] = {}  # rule 2j tooltips: tag -> the age whose text is used
-        self.world_projects: dict[str, set[str]] = {}  # rule 2k (world_projects), set by main()
+        self.project_groups: dict[str, dict] = {}  # rules 2k and 2l (project_groups), set by main()
+        self.legacy_rewrites: list[tuple] = []  # rule 2l: triumph requirement sets that read the tags
 
     # -- content ---------------------------------------------------------------
     def copy_content(self, groups):
@@ -337,6 +338,73 @@ class WorldBuild:
             if el is not None and el.get("effect") == "EFFECT_CITY_UNLOCK_PROJECT":
                 out += [(mid, p) for p in argument_values(el, "ProjectType") if p in wanted]
         return out
+
+    def achievement_rules(self, achievements: list[str]) -> tuple[list[str], list[ET.Element], list[tuple]]:
+        """Rule 2l for this world: SQL, definitions, and the rewritten triumph requirement sets (id, copy id, projects)."""
+        g = "{GameEffects}"
+
+        def req(parent, rtype, args, inverse=False):
+            r = ET.SubElement(parent, f"{g}Requirement", {"type": rtype, **({"inverse": "true"} if inverse else {})})
+            for k, v in args.items():
+                ET.SubElement(r, f"{g}Argument", {"name": k}).text = str(v)
+            return r
+
+        lines, defs = [], []
+        for p in achievements:
+            info, short = self.project_groups[p], p.removeprefix("PROJECT_")
+            exists = f"WHERE EXISTS (SELECT 1 FROM Projects WHERE ProjectType = '{p}')"
+            lines += [f"INSERT OR IGNORE INTO Types (Type, Kind) VALUES ('{info['tag']}', 'KIND_NARRATIVE_TAG');",
+                      f"INSERT OR IGNORE INTO NarrativeTags (NarrativeTagType) VALUES ('{info['tag']}');",
+                      f"UPDATE Projects SET RequiresUnlock = 1 WHERE ProjectType = '{p}';",
+                      f"INSERT INTO ProjectCompletionModifiers (ProjectType, ModifierId) SELECT '{p}', 'CA_ONCE_TAG_{short}' {exists};",
+                      f"INSERT INTO TraitModifiers (TraitType, ModifierId) SELECT 'TRAIT_LEADER_MAJOR_CIV', 'CA_ONCE_UNLOCK_{short}' {exists};"]
+            m = ET.Element(f"{g}Modifier", {"id": f"CA_ONCE_TAG_{short}", "collection": "COLLECTION_OWNER",
+                                            "effect": "EFFECT_PLAYER_GRANT_NARRATIVE_TAG", "permanent": "true"})
+            ET.SubElement(m, f"{g}Argument", {"name": "NarrativeTagType"}).text = info["tag"]
+            ET.SubElement(m, f"{g}Argument", {"name": "Amount"}).text = "1"
+            u = ET.Element(f"{g}Modifier", {"id": f"CA_ONCE_UNLOCK_{short}", "collection": "COLLECTION_PLAYER_CITIES",
+                                            "effect": "EFFECT_CITY_UNLOCK_PROJECT"})
+            owner = ET.SubElement(u, f"{g}OwnerRequirements")
+            req(owner, "REQUIREMENT_PLAYER_HAS_COMPLETED_PROGRESSION_TREE_NODE",
+                {"ProgressionTreeNodeType": info["node"], "MinDepth": info["depth"]})
+            req(owner, "REQUIREMENT_PLAYER_HAS_AT_LEAST_NUM_NARRATIVE_TAGS", {"NarrativeTagType": info["tag"], "Amount": 1}, inverse=True)
+            ET.SubElement(u, f"{g}Argument", {"name": "ProjectType"}).text = p
+            defs += [m, u]
+        # The triumphs of this world age that need an achievement project read its tag: a copy of each requirement set,
+        # and every row that names the set points to the copy. A set is left as it is (and reported) when a project
+        # requirement is inverse, names a project that is not an achievement, or the set is not "all of".
+        rewrites, kept = [], []
+        wanted = set(achievements)
+        cols = [(t, col) for (t,) in self.sim.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+                for col in [r[1] for r in self.sim.db.execute(f'PRAGMA table_info("{t}")')] if col.lower() == "requirementsetid"
+                and t not in ("RequirementSets", "RequirementSetRequirements")]  # the definitions themselves
+        for sid, f in sorted(self.sim.requirement_sets.items()):
+            if not wanted or "legac" not in Path(f).name.lower():
+                continue
+            el = next((e for e in ET.parse(effect_file(f)).getroot() if c.strip_ns(e.tag) == "RequirementSet" and e.get("id") == sid), None)
+            preqs = [r for r in (el if el is not None else []) if c.strip_ns(r.tag) == "Requirement"
+                     and r.get("type") == "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT"]
+            named = {p for r in preqs for p in argument_values(r, "ProjectType")}
+            if not preqs or not named & wanted:
+                continue
+            users = [(t, col) for t, col in cols if self.sim.db.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" = ?', (sid,)).fetchone()[0]]
+            if not users:  # another age's set, loaded with its definitions but not used in this world
+                continue
+            if not named <= wanted or any(r.get("inverse") == "true" for r in preqs) or (el.get("type") or "REQUIREMENTSET_TEST_ALL") != "REQUIREMENTSET_TEST_ALL":
+                kept.append(sid)
+                continue
+            copy = ET.fromstring(ET.tostring(el))
+            copy.set("id", f"CA_ONCE_{sid}")
+            for r in [r for r in copy if c.strip_ns(r.tag) == "Requirement" and r.get("type") == "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT"]:
+                copy.remove(r)
+                for p in argument_values(r, "ProjectType"):
+                    req(copy, "REQUIREMENT_PLAYER_HAS_AT_LEAST_NUM_NARRATIVE_TAGS", {"NarrativeTagType": self.project_groups[p]["tag"], "Amount": 1})
+            defs.append(copy)
+            lines +=[f'UPDATE "{t}" SET "{col}" = \'CA_ONCE_{sid}\' WHERE "{col}" = \'{sid}\';' for t, col in users]
+            rewrites.append((sid, f"CA_ONCE_{sid}", sorted(named), [t for t, _ in users]))
+        if kept:
+            raise SystemExit(f"rule 2l: triumph requirement sets in world {self.w} that the rule cannot rewrite: {kept} (game patch?)")
+        return lines, defs, rewrites
 
     def tree_chain(self, trees: list[str], gates: dict, gate_modifier: dict, prefix: str):
         """SQL that joins the main trees of all ages into trees[0], in age order. A gate node sits
@@ -559,14 +627,27 @@ class WorldBuild:
         # unlock which no effect gives cannot be started (2026-11-07, worker 1).
         lines += ["-- 2k. Projects that feed a world system (victory points, a legacy path) are built only in their own",
                   "--     world age: here they need an unlock that no effect gives, and their tech unlock is hidden."]
-        blocked = [] if "worldproj" in disabled_rules(args) else [p for p, ages in self.world_projects.items() if self.world not in ages]
-        unlockers = self.project_unlockers(blocked)
+        # On this branch rule 2k blocks only the FINAL projects (project_groups); the achievements follow rule 2l.
+        groups = self.project_groups
+        blocked = [] if "worldproj" in disabled_rules(args) else [
+            p for p, g in groups.items() if g["final"] and self.world not in g["ages"]]
+        achievements = [] if "achieve" in disabled_rules(args) else [p for p, g in groups.items() if not g["final"]]
+        unlockers = self.project_unlockers(blocked + achievements)
         if unlockers:
-            raise SystemExit(f"rule 2k: an effect unlocks a blocked project in world {self.w}: {unlockers} (game patch?)")
+            raise SystemExit(f"rules 2k/2l: an effect unlocks a project that the rules gate, in world {self.w}: {unlockers} (game patch?)")
         for p in blocked:
             lines += [f"UPDATE Projects SET RequiresUnlock = 1 WHERE ProjectType = '{p}';",
                       f"UPDATE ProgressionTreeNodeUnlocks SET Hidden = 1 WHERE TargetKind = 'KIND_PROJECT' AND TargetType = '{p}';"]
         lines += [""]
+        # Achievement projects (Chart the Stars, Heliocentric Model, ...): content again, built at the civ's own age in any
+        # world, but once per game. The game forgets project completions at a world transition, so the record is a
+        # narrative tag (player.Identity), which the base game's data reads across ages; no screen shows it.
+        a_lines, a_defs, self.legacy_rewrites = self.achievement_rules(achievements)
+        lines += ["-- 2l. Achievement projects (victory points, a triumph of their age; not final): built at the civ's own age",
+                  "--     in any world, once per game. Completion grants a narrative tag (NARRATIVE_TAG_CA_ONCE_<project>); a city",
+                  "--     can start the project only while its owner has the tech and not the tag; the triumphs of the world age",
+                  "--     read the tag instead of 'completed in this world' (copies CA_ONCE_<requirement set>)."] + a_lines + [""]
+        defs += a_defs
         lines += ["-- 5. Baseline adapters."] + baseline_lines + [""]
         # The Exploration civ trait's free Cog came at the world transition to civs still in Antiquity,
         # and a second time to civs that got it at their gate (iteration 20261024-224137). One source:
@@ -1313,13 +1394,17 @@ _EFFECT_FILES: dict[str, dict] = {}
 _GAME_DIR: Path = c.DEFAULT_GAME_DIR  # set by main() (--game-dir)
 
 
+def effect_file(f: str) -> str:
+    """The path of a file that a simulation loaded: copied content is named relative to Base/modules (c.rel)."""
+    return f if Path(f).is_absolute() else str(_GAME_DIR / "Base" / "modules" / f)
+
+
 def modifier_definition(sim, mid: str) -> ET.Element | None:
     """The Modifier element that the simulation loaded for id `mid`, read from its source file (cached)."""
     f = sim.modifiers.get(mid)
     if f is None:
         return None
-    if not Path(f).is_absolute():  # copied content is named relative to Base/modules (c.rel)
-        f = str(_GAME_DIR / "Base" / "modules" / f)
+    f = effect_file(f)
     if f not in _EFFECT_FILES:
         _EFFECT_FILES[f] = {el.get("id"): el for el in ET.parse(f).getroot() if c.strip_ns(el.tag) == "Modifier"}
     return _EFFECT_FILES[f].get(mid)
@@ -1361,6 +1446,45 @@ def world_projects(sims: dict) -> dict[str, set[str]]:
         for project in (legacy | points) & native:
             out[project].add(age)
     return {p: ages for p, ages in sorted(out.items()) if len(ages) < len(AGES)}
+
+
+def project_groups(sims: dict, projects: dict[str, set[str]]) -> dict[str, dict]:
+    """Rules 2k and 2l: each project of world_projects() is FINAL (it stays with its world age, rule 2k) or an
+    ACHIEVEMENT (built at the civ's own age, once per game, rule 2l). Final, from the project's own age data:
+      - a victory requires it (REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT in a victory file: Launch Rocket, Operation Ivy);
+      - it grants legacy path points itself (EFFECT_PLAYER_GRANT_VICTORY_POINT), or needs a completed legacy path
+        (RequireCompletedLegacyPathType): a legacy path exists only in its world age;
+      - it can be repeated (MaxPlayerInstances not 1): "once per game" does not apply;
+      - it does not have exactly one tech unlock (rule 2l keeps the tech as the gate).
+    Each entry: ages, final, why (the first reason), node and depth of the tech unlock, tag (rule 2l's record)."""
+    out = {}
+    for p, ages in projects.items():
+        sim = sims[min(ages, key=AGES.index)]
+        why = []
+        for f in sorted(set(sim.requirement_sets.values()) | set(sim.modifiers.values())):
+            if "victor" in Path(f).name.lower() and any(
+                    c.strip_ns(el.tag) == "Requirement" and el.get("type") == "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT"
+                    and p in argument_values(el, "ProjectType") for el in ET.parse(f).getroot().iter()):
+                why.append("a victory requires it")
+                break
+        row = sim.db.execute("SELECT MaxPlayerInstances, RequireCompletedLegacyPathType FROM Projects WHERE ProjectType = ?", (p,)).fetchone()
+        if row[1]:
+            why.append(f"needs the completed legacy path {row[1]}")
+        for table in ("ProjectModifiers", "ProjectCompletionModifiers"):
+            for (mid,) in sim.db.execute(f"SELECT ModifierId FROM {table} WHERE ProjectType = ?", (p,)):
+                el = modifier_definition(sim, mid)
+                if el is not None and el.get("effect") == "EFFECT_PLAYER_GRANT_VICTORY_POINT":
+                    why.append("grants legacy path points")
+        if row[0] != 1:
+            why.append("can be repeated")
+        unlocks = sim.db.execute("SELECT ProgressionTreeNodeType, UnlockDepth FROM ProgressionTreeNodeUnlocks "
+                                 "WHERE TargetKind = 'KIND_PROJECT' AND TargetType = ?", (p,)).fetchall()
+        if len(unlocks) != 1:
+            why.append(f"{len(unlocks)} tech unlocks")
+        node, depth = unlocks[0] if len(unlocks) == 1 else (None, 0)
+        out[p] = {"ages": ages, "final": bool(why), "why": why[0] if why else "achievement", "node": node,
+                  "depth": depth or 1, "tag": f"NARRATIVE_TAG_CA_ONCE_{p.removeprefix('PROJECT_')}"}
+    return out
 
 
 def kept_resources(sims: dict) -> dict[str, list[dict]]:
@@ -1410,7 +1534,8 @@ RULE_PROOFS = {
     "2h": "civic and policy continuity (CONTINUITY FAIL); a later-age civic tree shown early (CIVICGATE FAIL)",
     "2i": "rule_2i.js (Ming, Mughal); REPLACE (FAIL); base unit started after the gate (FAIL); kept base unit converted (LEAK FAIL)",
     "2j": "old_resources.js (an Antiquity resource assigned in the Exploration world gives its Antiquity effect)",
-    "2k": "world_projects.js (a victory project of another age cannot be started; one of the world age can)",
+    "2k": "world_projects.js (finals: build report only, all need a building); project_achievements.js",
+    "2l": "project_achievements.js (once per game across a world transition; the triumph reads the tag); world_projects.js",
     "3": "GOV-AGE (a government of another age: FAIL)",
     "4": "test setting",
     "5": "meet_distant.js (meeting flag); deep_ocean_turn.js and ocean_damage.js (ocean travel); BUILD and GATE (reports)",
@@ -1437,7 +1562,8 @@ def check_rule_proofs(sql: str, world: str) -> None:
 DISABLE_RULES = {"2i": "unique units block their base units again", "6b": "no deep-ocean damage in the Antiquity world",
                  "meet": "no meeting flag at the Exploration Breakthrough", "civic-gate": "the 0.2.1 civic dead end",
                  "oldres": "kept resources of an earlier age have no effects and the first age's text (up to 0.4.0)",
-                 "worldproj": "victory and legacy projects can be built in every world age (up to 0.4.0)"}
+                 "worldproj": "final projects can be built in every world age (up to 0.4.0)",
+                 "achieve": "achievement projects have no once-per-game record and their triumphs read 'completed in this world' (up to 0.4.0)"}
 
 
 def disabled_rules(args) -> set:
@@ -1588,12 +1714,13 @@ def main() -> None:
     kept = kept_resources(dlc_sims)
     print("kept resources with the effects of their last valid age (rule 2j): " + "; ".join(
         f"{NAME[w]} {[(e['resource'][9:], len(e['effects'])) for e in v]}" for w, v in kept.items() if v))
-    projects = world_projects(dlc_sims)
-    print("projects that stay with their world age (rule 2k): " + ", ".join(
-        f"{p[8:]} ({'/'.join(NAME[a] for a in AGES if a in ages)})" for p, ages in projects.items()))
+    projects = project_groups(dlc_sims, world_projects(dlc_sims))
+    print("final projects, with their world age (rule 2k): " + ", ".join(
+        f"{p[8:]} ({i['why']})" for p, i in projects.items() if i["final"]))
+    print("achievement projects, once per game (rule 2l): " + ", ".join(p[8:] for p, i in projects.items() if not i["final"]))
     for b in builds:
         b.kept_resources = kept[b.world]
-        b.world_projects = projects
+        b.project_groups = projects
         b.starters = starters
         b.civ_content = civ_content
         b.replace_gaps = gaps
@@ -1643,7 +1770,9 @@ def main() -> None:
         wp_marker = "const CA_WORLD_PROJECTS = {}; // CA_WORLD_PROJECTS (filled by build_mod.py)"
         if wp_marker not in text:
             raise SystemExit("ca-checks.js: the CA_WORLD_PROJECTS line is missing")
-        text = text.replace(wp_marker, f"const CA_WORLD_PROJECTS = {json.dumps({p: sorted(a) for p, a in projects.items()})};")
+        text = text.replace(wp_marker, "const CA_WORLD_PROJECTS = " + json.dumps(
+            {p: {"ages": sorted(i["ages"]), "final": i["final"], "why": i["why"], "node": i["node"], "depth": i["depth"], "tag": i["tag"]}
+             for p, i in projects.items()}) + ";")
         probe_marker = "const CA_PROBE = null; // CA_PROBE (filled by build_mod.py --probe)"
         if probe_marker not in text:
             raise SystemExit("ca-checks.js: the CA_PROBE line is missing")
@@ -1761,8 +1890,12 @@ def write_report(builds) -> None:
         out += [f"- {NAME[a]} civ content: {len(v['trees'])} civic trees without a prereq gate (shown by rules 5e, 5i); "
                 f"items without unlock: {', '.join(v['items']['KIND_UNIT'] + v['items']['KIND_CONSTRUCTIBLE']) or 'none'}"
                 for a, v in b.civ_content.items()]
-        blocked = [p for p, ages in b.world_projects.items() if b.world not in ages]
-        out.append(f"- Projects that stay with another world age (rule 2k; blocked here): {', '.join(blocked) or 'none'}")
+        blocked = [p for p, i in b.project_groups.items() if i["final"] and b.world not in i["ages"]]
+        out.append(f"- Final projects of another world age (rule 2k; blocked here): {', '.join(blocked) or 'none'}")
+        out.append(f"- Achievement projects (rule 2l; any world, once per game): "
+                   f"{', '.join(p for p, i in b.project_groups.items() if not i['final']) or 'none'}")
+        out += [f"- Triumph that reads the tags (rule 2l): {legacy} via {sid} -> {copy} ({', '.join(ps)})"
+                for sid, copy, ps, legacy in b.legacy_rewrites]
         for e in b.kept_resources:
             src = NAME[b.text_preferred[e["tooltip"]]] if e["tooltip"] in b.text_preferred else "first age that has it, or this world"
             out.append(f"- Kept resource (rule 2j) {e['resource']}: last valid age {NAME[e['last']]}, effects "

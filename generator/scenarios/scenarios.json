@@ -7,6 +7,7 @@
 	{"file": "gate_content.js", "set": [], "proves": "goals 3 and 5: an Exploration unit and building are locked before the tech Breakthrough and usable after it"},
 	{"file": "upgrade_across_ages.js", "set": [], "proves": "rule 2g: an Antiquity unit upgrades to its Exploration successor after the gate, not before"},
 	{"file": "old_resources.js", "set": ["StartAge=AGE_EXPLORATION"], "proves": "rule 2j: a resource of an earlier age (Hides) assigned in the Exploration world gives its Antiquity effect (a player report)"},
-	{"file": "world_projects.js", "set": [], "proves": "rule 2k: in the Antiquity world, Exploration victory projects (Heliocentric Model, Invent Calculus) cannot be started; Antiquity ones can"},
-	{"file": "world_projects.js", "set": ["StartAge=AGE_EXPLORATION"], "proves": "rule 2k: in the Exploration world, Antiquity victory projects (Chart the Stars, Spherical Earth) cannot be started; Exploration ones can (a player report)"}
+	{"file": "world_projects.js", "set": [], "proves": "rule 2l: in the Antiquity world, a civ with the tech can start Exploration achievement projects (Heliocentric Model, Invent Calculus) and the Antiquity ones"},
+	{"file": "world_projects.js", "set": ["StartAge=AGE_EXPLORATION"], "proves": "rule 2l: in the Exploration world, a civ that never built them can start the Antiquity achievement projects (Chart the Stars, Spherical Earth)"},
+	{"file": "project_achievements.js", "set": [], "build": ["--age-points", "8"], "timeout": 1200, "proves": "rule 2l: achievement projects once per game across a world transition, and the Exploration science triumph counts Heliocentric Model built in the Antiquity world (a player report)"}
 ]

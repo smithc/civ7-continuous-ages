@@ -453,6 +453,10 @@ def run_phases(file: Path, timeout: float) -> tuple[dict, list]:
             if not (isinstance(last, dict) and last.get("transition") is not None):
                 return {"ok": False, "error": f"phase {i} did not end with a transition"}, results
             chosen = choose_civ((last["transition"] or {}).get("civ"))
+            # An automation game makes the transition itself (no civ selection screen): a phase that expects that
+            # returns {transition: {auto: true}} after it ends the last turn of the age.
+            if (last["transition"] or {}).get("auto") and "made the transition itself" in str(chosen.get("error", "")):
+                chosen = {"ok": True, "value": {"auto": True, "civ": chosen.get("civ")}}
             results.append({"ok": chosen.get("ok", False), "value": {"ok": chosen.get("ok", False), "choose": chosen.get("value"), "phase": f"{i}-shell"}})
             if not chosen.get("ok") or not wait(900):
                 return {"ok": False, "error": f"the new age did not load after phase {i}", "choose": chosen}, results
