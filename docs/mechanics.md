@@ -166,7 +166,8 @@ Breakthrough (for example the Exploration Dedication that grants Piety). (18 car
 A civ can use content of its own age and of earlier ages. Content of a later age needs that age's
 Breakthrough. This applies even after the world has moved on:
 
-- techs of a later age, and units, buildings, improvements, wonders and projects that they unlock;
+- techs of a later age, and units, buildings, improvements, wonders and projects that they unlock (except the
+  projects that feed a world system: see [World systems](#world-systems));
 - civics of a later age, and what they unlock, need the civic Breakthrough of that age (see
   [Civics](#civics));
 - "starter" units and buildings that a later age gives at its start;
@@ -249,6 +250,24 @@ These systems stay with the world age and start at the world transition, as in t
 - the age's growth curve and balance values.
 
 A leading civ therefore cannot score the next age's legacy paths before the world reaches that age.
+
+**Projects that feed a world system (rule 2k).** A project that gives victory points, or that a legacy path or a
+victory of its age requires, is built only in its own world age, as in the base game. In other worlds a city cannot
+start it, and the tech tree does not show it. There are 11 such projects:
+
+- Antiquity: Chart the Stars, Spherical Earth;
+- Exploration: Heliocentric Model, Invent Calculus;
+- Modern: Break the Sound Barrier, Trans-Oceanic Flight, Launch Satellite, Launch Rocket, Crewed Space Flight Prep,
+  Crewed Space Flight Research, Operation Ivy.
+
+Why: the game forgets which projects a civ completed at each world transition. Up to version 0.4.0 these projects
+were content, so a civ built Chart the Stars and Spherical Earth again in each later world (a player report), with
+their victory points, Altar purchases and attribute point each time. A leading civ could also build Heliocentric Model
+in the Antiquity world, and Launch Satellite in the Exploration world, and then build them again in their own world.
+A lagging civ that did not build an age's projects loses them at the transition, as in the base game. Victory points
+from tech masteries and wonders stay content: they cannot repeat. The generator finds the projects in the game data
+(`world_projects` in `build_mod.py`), and the build stops if an effect would unlock one of them.
+
 Two Exploration rules are not world systems, because they follow from ocean travel, which a civ gets at
 its own Breakthrough: deep-ocean damage and meeting the civs of the Distant Lands (see
 [Ocean travel](#ocean-travel)).

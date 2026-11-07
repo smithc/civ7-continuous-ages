@@ -105,7 +105,7 @@ automation, and writes `build/iterations/<time>/REPORT.md` with the logs and a c
 | Time-Tested civs from the start (Mughal, Norman, Mongolia, Qing, Inca, Ming): unique units and their base units (rule 2i) | `python iterate.py --suite ContinuousAgesTimeTested.json --fast-test 0.4 --turns 700 --observe NONE --timeout 150` | about 15 min |
 | The default setup: random AI civs, which can come from any age (Time-Tested) | `python iterate.py --suite ContinuousAgesDefault.json --no-fast-test --turns 700 --observe NONE --timeout 150 --expect-transitions 3 --set MapSeed=1001 --set GameSeed=1001` (run several seeds) | about 16 min |
 | The base game in the same setup (control) | add `--control` (the mod's logging and automation test only; most checks then fail) | as the suite |
-| A negative control: a run without a rule, which must fail | add `--disable-rule 2i` (or `6b`, `meet`, `civic-gate`, `oldres`; see `DISABLE_RULES` in `build_mod.py`) | as the suite |
+| A negative control: a run without a rule, which must fail | add `--disable-rule 2i` (or `6b`, `meet`, `civic-gate`, `oldres`, `worldproj`; see `DISABLE_RULES` in `build_mod.py`) | as the suite |
 | Civic tree screen (not an autoplay) | `python ui_test.py --save CA_AQ135` (see [UI test](#ui-test)) | about 2 min |
 | All scenario tests (not an autoplay; needs `build_mod.py --install --checks`) | `python live.py all` (see [Testing](testing.md#scenario-tests)) | about 1 to 2 min each |
 | One scenario, or a live game to drive by hand | `python live.py scenario scenarios/meet_distant.js`, or `live.py start`, `wait`, `eval`, `quit`; `--manual` for a normal game without automation | about 1 min |

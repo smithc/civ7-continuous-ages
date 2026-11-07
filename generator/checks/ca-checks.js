@@ -33,6 +33,10 @@ const CA_REPLACE_GAPS = []; // CA_REPLACE_GAPS (filled by build_mod.py)
 // since the UI's queries answer reliably only for the observed player.
 const CA_PROBE = null; // CA_PROBE (filled by build_mod.py --probe)
 globalThis.caReplaceGaps = CA_REPLACE_GAPS; // for live scenarios (scenarios/rule_2i.js)
+// Rule 2k: {project: [world ages whose own data defines it]} of the projects that feed a world system (victory points,
+// a legacy path). build_mod.py --checks writes the map into this line.
+const CA_WORLD_PROJECTS = {}; // CA_WORLD_PROJECTS (filled by build_mod.py)
+globalThis.caWorldProjects = CA_WORLD_PROJECTS; // for live scenarios (scenarios/world_projects.js)
 
 // Exploration constructibles, found by the Exploration tech or civic that unlocks them
 // (their Age column is set to the world age by the generator, so Age cannot tell).

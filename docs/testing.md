@@ -50,6 +50,16 @@ operations that the game's screens and its FireTuner panels send.
 
 Note: the game opens this port on all network interfaces (0.0.0.0). That is the base game's behavior.
 
+Facts that a scenario must respect (live tests of 2026-11-07, worker 1):
+
+- **Resource assignment is open only on turn 1** in these test games (`Players.get(id).Resources.isResourceAssignmentLocked()`):
+  with the mod and with the base-game control build (`--control`), in a normal game too. The mod does not cause
+  it. A resource effect that counts assigned resources is therefore tested on turn 1 (`old_resources.js`).
+- **Each debug grant of a tech adds one depth** (`GRANT_TREE_NODE`; `FullyUnlock` does not give the mastery).
+  Grant again for an item that needs the mastery, and check `Game.ProgressionTrees.getNode(...).depthUnlocked`.
+- `WorldBuilder.MapPlots.setResource` does not replace a resource: clear the plot first. A resource counts only with
+  its matching improvement.
+
 Two ways to get a live game:
 
 - **Automation test `CALive`** (the default): the suite `autoplay/ContinuousAgesLive.json` sets up and hosts
@@ -126,6 +136,7 @@ after a unit creation in `meet_distant.js`, `ocean_damage.js`, `deep_ocean_turn.
 | `gate_content.js` | Goals 3 and 5: an Exploration unit (Knight) and building (Wharf) are locked before the tech Breakthrough and usable after it. | Egypt |
 | `upgrade_across_ages.js` | Rule 2g: a Swordsman cannot upgrade to a Man-at-Arms before the gate; after the gate and Heraldry, the upgrade works. | Egypt |
 | `old_resources.js` | Rule 2j: on turn 1 of an Exploration game, Hides (valid only in Antiquity) put on the Camp plot of the capital's Ivory and assigned gives its Antiquity effect (+3 Production). Controls: Ivory unassigned, then put back and assigned, changes the yields. Passed in 20261107-142234-w1. A resource counts only when assigned, and in these test games assignment is open only on turn 1, so the scenario does not end a turn. | Egypt, `StartAge=AGE_EXPLORATION` |
+| `world_projects.js` | Rule 2k: for each project that feeds a world system and needs no building, the civ gets its tech (to the depth the project needs; each debug grant adds one depth), and the capital is asked whether it can start it. A project of another world age cannot be started; one of the world age can (control). Passed in the Antiquity world (20261107-145026-w1: Heliocentric Model and Invent Calculus blocked) and the Exploration world (20261107-145104-w1: Chart the Stars and Spherical Earth blocked). The Modern projects need a building: the build report covers them. | Egypt; and `StartAge=AGE_EXPLORATION` |
 | `probe_disable.js`, `probe_disable_gate.js` | Probes (not in the list): which form of the disable effect works. | `--probe disable`, `--probe disable_gate` |
 
 ## Negative controls
@@ -139,6 +150,7 @@ Each new check was shown to fail without its rule (rule 2 below):
 | `GOV-AGE` on the records of earlier runs | Failed on every run before the government fix (for example 20261029-202958, 20261031-125020). |
 | Rule 2i's first form (`PermanentlyDisabled`, not permanent) | Failed in the game (20261031-121009: Merchants after the gate); the probe showed why. |
 | `build_mod.py --disable-rule oldres`, then `old_resources.js` | Failed for the right reason: the assigned Hides gave nothing, and both controls passed (20261107-142621-w1). |
+| `build_mod.py --disable-rule worldproj`, then `world_projects.js` in both worlds | Failed for the right reason: in the Antiquity world a civ could start Heliocentric Model and Invent Calculus (20261107-145209-w1), and in the Exploration world Chart the Stars and Spherical Earth (20261107-145247-w1); the controls passed. |
 
 ## Coverage of the design goals
 
@@ -160,6 +172,7 @@ reported only, or it depends on the AI; **none** = no check. The proof of each n
 | Rule 6 deep ocean ends the turn until Shipbuilding | `deep_ocean_turn.js` | strong |
 | Rule 6b deep-ocean damage | `ocean_damage.js` | strong |
 | Rule 2g upgrades across ages | `upgrade_across_ages.js` | strong |
+| Rule 2k projects that feed a world system stay with their world age | `world_projects.js` (Antiquity and Exploration projects in both worlds); the build report lists the blocked projects of each world; the build stops if an effect unlocks one | strong for the Antiquity and Exploration projects; the Modern projects: build report only |
 | Rule 2j kept resources keep their effects | `old_resources.js` (one resource, Hides, in the Exploration world); the build report lists each kept resource with its effects and text source | strong for the effect in the Exploration world; the Modern world and the tooltip text: build report only |
 | Rule 3 governments of the world age | `GOV-AGE` (FAIL) | strong |
 | Rule 5e abilities after the gate; 5f card grants arrive | reported at the reload | weak |

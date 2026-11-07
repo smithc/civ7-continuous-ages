@@ -56,6 +56,11 @@ The split between content and systems is the core rule of the mod. Content follo
 follow the world. Systems need setup that the game does only at a world transition (for example the
 Distant Lands for treasure fleets), so they cannot start early for one civ.
 
+Some items look like content but have a use only through a world system. **Such an item follows the system it
+feeds.** Projects that give victory points, or that a legacy path or a victory requires, are built only in their own
+world age (see [Mechanics](mechanics.md#world-systems)). A resource that stays on the map from an earlier age keeps
+the effects of its last valid age (see [Mechanics](mechanics.md#resources)). Religious units are an open question.
+
 ## What the mod does not change
 
 - The world age, its age progress meter and the timing of world transitions.

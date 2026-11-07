@@ -188,6 +188,7 @@ class WorldBuild:
         self.text_items: list[str] = []
         self.kept_resources: list[dict] = []  # rule 2j (kept_resources), set by main()
         self.text_preferred: dict[str, str] = {}  # rule 2j tooltips: tag -> the age whose text is used
+        self.world_projects: dict[str, set[str]] = {}  # rule 2k (world_projects), set by main()
 
     # -- content ---------------------------------------------------------------
     def copy_content(self, groups):
@@ -326,6 +327,17 @@ class WorldBuild:
                     self.text_items.append(rel_item)
 
     # -- rules -----------------------------------------------------------------
+    def project_unlockers(self, projects: list[str]) -> list[tuple[str, str]]:
+        """Rule 2k's block holds only while no effect unlocks the project (EFFECT_CITY_UNLOCK_PROJECT): (modifier, project)
+        pairs of this world's data that would undo it."""
+        wanted = set(projects)
+        out = []
+        for mid in sorted(self.sim.modifiers) if wanted else []:
+            el = modifier_definition(self.sim, mid)
+            if el is not None and el.get("effect") == "EFFECT_CITY_UNLOCK_PROJECT":
+                out += [(mid, p) for p in argument_values(el, "ProjectType") if p in wanted]
+        return out
+
     def tree_chain(self, trees: list[str], gates: dict, gate_modifier: dict, prefix: str):
         """SQL that joins the main trees of all ages into trees[0], in age order. A gate node sits
         between the ages: it needs the previous age's last nodes, and the age's first nodes need it.
@@ -541,6 +553,19 @@ class WorldBuild:
                           f"INSERT OR IGNORE INTO ModifierMetadatas (ModifierID, FieldName, String) "
                           f"VALUES ('{m.get('id')}', 'ResourceType', '{e['resource']}');"]
                 defs.append(m)
+        lines += [""]
+        # Projects whose purpose is a world system (victory points, a legacy path) stay with their world age, like the
+        # system they feed. See world_projects(). The block is the one a live probe proved: a project that needs an
+        # unlock which no effect gives cannot be started (2026-11-07, worker 1).
+        lines += ["-- 2k. Projects that feed a world system (victory points, a legacy path) are built only in their own",
+                  "--     world age: here they need an unlock that no effect gives, and their tech unlock is hidden."]
+        blocked = [] if "worldproj" in disabled_rules(args) else [p for p, ages in self.world_projects.items() if self.world not in ages]
+        unlockers = self.project_unlockers(blocked)
+        if unlockers:
+            raise SystemExit(f"rule 2k: an effect unlocks a blocked project in world {self.w}: {unlockers} (game patch?)")
+        for p in blocked:
+            lines += [f"UPDATE Projects SET RequiresUnlock = 1 WHERE ProjectType = '{p}';",
+                      f"UPDATE ProgressionTreeNodeUnlocks SET Hidden = 1 WHERE TargetKind = 'KIND_PROJECT' AND TargetType = '{p}';"]
         lines += [""]
         lines += ["-- 5. Baseline adapters."] + baseline_lines + [""]
         # The Exploration civ trait's free Cog came at the world transition to civs still in Antiquity,
@@ -1284,6 +1309,60 @@ def replace_gap_modifiers(gaps) -> list[ET.Element]:
     return out
 
 
+_EFFECT_FILES: dict[str, dict] = {}
+_GAME_DIR: Path = c.DEFAULT_GAME_DIR  # set by main() (--game-dir)
+
+
+def modifier_definition(sim, mid: str) -> ET.Element | None:
+    """The Modifier element that the simulation loaded for id `mid`, read from its source file (cached)."""
+    f = sim.modifiers.get(mid)
+    if f is None:
+        return None
+    if not Path(f).is_absolute():  # copied content is named relative to Base/modules (c.rel)
+        f = str(_GAME_DIR / "Base" / "modules" / f)
+    if f not in _EFFECT_FILES:
+        _EFFECT_FILES[f] = {el.get("id"): el for el in ET.parse(f).getroot() if c.strip_ns(el.tag) == "Modifier"}
+    return _EFFECT_FILES[f].get(mid)
+
+
+def argument_values(el: ET.Element, name: str, deep: bool = False) -> list[str]:
+    """The values of Argument `name` (a comma list in the game data): the element's own arguments, or with `deep` also
+    those of its nested requirements."""
+    return [v.strip() for a in (el.iter() if deep else el) if c.strip_ns(a.tag) == "Argument" and a.get("name") == name
+            for v in (a.text or "").split(",") if v.strip()]
+
+
+def world_projects(sims: dict) -> dict[str, set[str]]:
+    """Rule 2k: the projects that feed a world system, with the world ages whose own data defines them. A project feeds a
+    world system when it grants victory points (a ProjectModifiers or ProjectCompletionModifiers row whose modifier is
+    EFFECT_PLAYER_GRANT_VICTORY_TRACKER_POINTS) or when a legacy path or a victory of its age requires it
+    (REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT in that age's legacy or victory files; Operation Ivy: the Modern military
+    victory and a Modern legacy milestone). Victories, legacy paths and triumphs are
+    world systems, and the game forgets project completions at a world transition, so as content such a project was built
+    again in each later world (Chart the Stars, Spherical Earth: a player report of 2026-11-01) and early by a leading civ
+    (Heliocentric Model in the Antiquity world, Launch Satellite in the Exploration world). A project that every age
+    defines is left out."""
+    out: dict[str, set[str]] = defaultdict(set)
+    for age in AGES:
+        sim = sims[age]
+        native = {r[0] for r in sim.db.execute("SELECT ProjectType FROM Projects")}
+        legacy = set()
+        for f in sorted(set(sim.requirement_sets.values()) | set(sim.modifiers.values())):
+            if any(k in Path(f).name.lower() for k in ("legac", "victor")):
+                for el in ET.parse(f).getroot().iter():
+                    if c.strip_ns(el.tag) == "Requirement" and el.get("type") == "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT":
+                        legacy |= set(argument_values(el, "ProjectType"))
+        points = set()
+        for table in ("ProjectModifiers", "ProjectCompletionModifiers"):
+            for project, mid in sim.db.execute(f"SELECT ProjectType, ModifierId FROM {table}"):
+                el = modifier_definition(sim, mid)
+                if el is not None and el.get("effect") == "EFFECT_PLAYER_GRANT_VICTORY_TRACKER_POINTS":
+                    points.add(project)
+        for project in (legacy | points) & native:
+            out[project].add(age)
+    return {p: ages for p, ages in sorted(out.items()) if len(ages) < len(AGES)}
+
+
 def kept_resources(sims: dict) -> dict[str, list[dict]]:
     """Rule 2j, per world age: the resources that can stay on the map from an earlier world although they are not valid
     in this one (the base game removes them at the transition: removeObsoleteResources). For each: its last valid age,
@@ -1292,16 +1371,6 @@ def kept_resources(sims: dict) -> dict[str, list[dict]]:
     age's own files: the mod also loads other ages' definitions, and the first one loaded wins an id (Dates: the
     Antiquity +2 in the Modern world, not the Exploration +3). A resource with no such row (Camels: BonusResourceSlots
     on its own row) gets none. Resource classes stay the world's (a system; Treasure does not exist in Modern)."""
-    files: dict[str, dict] = {}
-
-    def definition(sim, mid):
-        f = sim.modifiers.get(mid)
-        if f is None:
-            return None
-        if f not in files:
-            files[f] = {el.get("id"): el for el in ET.parse(f).getroot() if c.strip_ns(el.tag) == "Modifier"}
-        return files[f].get(mid)
-
     valid = defaultdict(set)
     for sim in sims.values():
         for res, age in sim.db.execute("SELECT ResourceType, AgeType FROM Resource_ValidAges"):
@@ -1317,12 +1386,8 @@ def kept_resources(sims: dict) -> dict[str, list[dict]]:
             sim = sims[last]
             effects = []
             for (mid,) in sim.db.execute("SELECT ModifierId FROM GameModifiers ORDER BY ModifierId"):
-                el = definition(sim, mid)
-                if el is None:
-                    continue
-                named = [(a.text or "").split(",") for a in el
-                         if c.strip_ns(a.tag) == "Argument" and a.get("name") == "ResourceType"]
-                if any(res in [v.strip() for v in vals] for vals in named):
+                el = modifier_definition(sim, mid)
+                if el is not None and res in argument_values(el, "ResourceType"):
                     copy = ET.fromstring(ET.tostring(el))
                     copy.set("id", f"CA_RES_{mid}")
                     effects.append(copy)
@@ -1345,6 +1410,7 @@ RULE_PROOFS = {
     "2h": "civic and policy continuity (CONTINUITY FAIL); a later-age civic tree shown early (CIVICGATE FAIL)",
     "2i": "rule_2i.js (Ming, Mughal); REPLACE (FAIL); base unit started after the gate (FAIL); kept base unit converted (LEAK FAIL)",
     "2j": "old_resources.js (an Antiquity resource assigned in the Exploration world gives its Antiquity effect)",
+    "2k": "world_projects.js (a victory project of another age cannot be started; one of the world age can)",
     "3": "GOV-AGE (a government of another age: FAIL)",
     "4": "test setting",
     "5": "meet_distant.js (meeting flag); deep_ocean_turn.js and ocean_damage.js (ocean travel); BUILD and GATE (reports)",
@@ -1370,7 +1436,8 @@ def check_rule_proofs(sql: str, world: str) -> None:
 # the rule's test fails without it (docs/testing.md, "A new check must fail once").
 DISABLE_RULES = {"2i": "unique units block their base units again", "6b": "no deep-ocean damage in the Antiquity world",
                  "meet": "no meeting flag at the Exploration Breakthrough", "civic-gate": "the 0.2.1 civic dead end",
-                 "oldres": "kept resources of an earlier age have no effects and the first age's text (up to 0.4.0)"}
+                 "oldres": "kept resources of an earlier age have no effects and the first age's text (up to 0.4.0)",
+                 "worldproj": "victory and legacy projects can be built in every world age (up to 0.4.0)"}
 
 
 def disabled_rules(args) -> set:
@@ -1467,7 +1534,7 @@ def prune_dangling(b: WorldBuild, violations) -> int:
 
 
 def main() -> None:
-    global OUT, BUILD_REPORT  # --out
+    global OUT, BUILD_REPORT, _GAME_DIR  # --out, --game-dir
     ap = argparse.ArgumentParser()
     ap.add_argument("--game-dir", type=Path, default=c.DEFAULT_GAME_DIR)
     ap.add_argument("--install", action="store_true")
@@ -1487,7 +1554,7 @@ def main() -> None:
                     help="build the mod in DIR/continuous-ages and the build report in DIR (default: build/). Parallel "
                          "games (iterate.py --worker N) each build in their own folder")
     args = ap.parse_args()
-    game = args.game_dir
+    game = _GAME_DIR = args.game_dir
     if args.package and (args.checks or args.fast_test is not None or args.age_points or args.probe or args.disable_rule or args.control):
         ap.error("--package makes a release build: leave out --checks, --fast-test, --age-points, --probe, --disable-rule and --control")
     if args.package and args.out:
@@ -1521,8 +1588,12 @@ def main() -> None:
     kept = kept_resources(dlc_sims)
     print("kept resources with the effects of their last valid age (rule 2j): " + "; ".join(
         f"{NAME[w]} {[(e['resource'][9:], len(e['effects'])) for e in v]}" for w, v in kept.items() if v))
+    projects = world_projects(dlc_sims)
+    print("projects that stay with their world age (rule 2k): " + ", ".join(
+        f"{p[8:]} ({'/'.join(NAME[a] for a in AGES if a in ages)})" for p, ages in projects.items()))
     for b in builds:
         b.kept_resources = kept[b.world]
+        b.world_projects = projects
         b.starters = starters
         b.civ_content = civ_content
         b.replace_gaps = gaps
@@ -1569,6 +1640,10 @@ def main() -> None:
         if marker not in text:
             raise SystemExit("ca-checks.js: the CA_REPLACE_GAPS line is missing")
         text = text.replace(marker, f"const CA_REPLACE_GAPS = {json.dumps([list(g) for g in gaps])};")
+        wp_marker = "const CA_WORLD_PROJECTS = {}; // CA_WORLD_PROJECTS (filled by build_mod.py)"
+        if wp_marker not in text:
+            raise SystemExit("ca-checks.js: the CA_WORLD_PROJECTS line is missing")
+        text = text.replace(wp_marker, f"const CA_WORLD_PROJECTS = {json.dumps({p: sorted(a) for p, a in projects.items()})};")
         probe_marker = "const CA_PROBE = null; // CA_PROBE (filled by build_mod.py --probe)"
         if probe_marker not in text:
             raise SystemExit("ca-checks.js: the CA_PROBE line is missing")
@@ -1686,6 +1761,8 @@ def write_report(builds) -> None:
         out += [f"- {NAME[a]} civ content: {len(v['trees'])} civic trees without a prereq gate (shown by rules 5e, 5i); "
                 f"items without unlock: {', '.join(v['items']['KIND_UNIT'] + v['items']['KIND_CONSTRUCTIBLE']) or 'none'}"
                 for a, v in b.civ_content.items()]
+        blocked = [p for p, ages in b.world_projects.items() if b.world not in ages]
+        out.append(f"- Projects that stay with another world age (rule 2k; blocked here): {', '.join(blocked) or 'none'}")
         for e in b.kept_resources:
             src = NAME[b.text_preferred[e["tooltip"]]] if e["tooltip"] in b.text_preferred else "first age that has it, or this world"
             out.append(f"- Kept resource (rule 2j) {e['resource']}: last valid age {NAME[e['last']]}, effects "
