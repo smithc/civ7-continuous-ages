@@ -259,12 +259,16 @@ groups, found in the game data (`project_groups` in `build_mod.py`):
 
 - **Final projects (rule 2k): built only in their own world age, as in the base game.** A project is final when a
   victory requires it, when it grants legacy path points itself or needs a completed legacy path (a legacy path exists
-  only in its world age), when it can be repeated, or when it has no single tech unlock. Today: Launch Rocket and
-  Operation Ivy (the Modern science and military victories) and Crewed Space Flight Prep (repeatable). In other worlds
-  a city cannot start them, and the tech tree does not show them.
+  only in its world age), when it can be repeated, when it has no single tech unlock, or when a triumph of its age in
+  the default triumph set needs it and has one winner (first player only). Today: Launch Rocket and Operation Ivy (the
+  Modern science and military victories), Crewed Space Flight Prep (repeatable) and Break the Sound Barrier (its Modern
+  science triumph has one winner). In other worlds a city cannot start them, and the tech tree does not show them.
+  Why the one-winner rule: a tag has no date. Built early, every civ with the tag would qualify for the triumph on the
+  same turn, at the world start, and the engine, not the first civ to complete the project, would pick the winner. As
+  a final project, Break the Sound Barrier is a race in the Modern world, as in the base game.
 - **Achievement projects (rule 2l): built at the civ's own age, in any world, once per game.** Today: Chart the
-  Stars, Spherical Earth, Heliocentric Model, Invent Calculus, Break the Sound Barrier, Trans-Oceanic Flight, Launch
-  Satellite, Crewed Space Flight Research. A civ with the tech can build one in any world: a leading civ builds
+  Stars, Spherical Earth, Heliocentric Model, Invent Calculus, Trans-Oceanic Flight, Launch Satellite, Crewed Space
+  Flight Research. A civ with the tech can build one in any world: a leading civ builds
   Heliocentric Model in the Antiquity world, and a lagging civ builds Chart the Stars in the Exploration world. When the
   project is complete, the civ gets a hidden narrative tag, and a civ with the tag cannot build the project again. The
   triumphs of the project's age read the tag instead of "completed in this world": a project built early counts when
@@ -273,10 +277,10 @@ groups, found in the game data (`project_groups` in `build_mod.py`):
   narrative chains read tags across ages), and no screen shows it.
 
 Effect on play: a leading civ can collect an achievement's rewards early (victory points, the attribute point, naval
-movement), and its triumph counts when the world reaches that age. Break the Sound Barrier is an achievement, and its
-Modern triumph counts toward the Modern science legacy path that Launch Rocket needs: a civ that built it early starts
-the Modern world one triumph ahead. The build stops if an effect would unlock a gated project, or if a triumph cannot
-be rewritten (a game patch).
+movement), and its triumph counts when the world reaches that age. Only the Antiquity and Exploration science
+triumphs read tags; no Modern triumph does, so no early project moves a civ along the Modern science legacy path that
+Launch Rocket needs. The build stops if an effect would unlock a gated project, or if a triumph cannot be rewritten
+(a game patch). The Race triumph set, a setup option, is an open check (see [Known limits](known-limits.md#open-checks)).
 
 Two Exploration rules are not world systems, because they follow from ocean travel, which a civ gets at
 its own Breakthrough: deep-ocean damage and meeting the civs of the Distant Lands (see

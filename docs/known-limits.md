@@ -80,12 +80,13 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
 
 ## Open checks
 
-- **First-player-only triumphs and rule 2l's tags.** The Modern science triumph of Break the Sound Barrier
-  (`LEGACY_MO_SCIENTIFIC_2`) is first-player-only in the default triumph set, and in the Race triumph set
-  (`LEGACY_SET_RACE`, a setup option) every `_RACE` triumph is. Rule 2l rewrites the shared requirement set, so all civs
-  that built the project in an earlier world qualify at the same moment, at the world start, and the engine picks one.
-  Not tested: the test game had one civ with the tag. Possible fixes: make a project final when one of its triumphs is
-  first-player-only, or point only the triumphs that are not first-player-only at the tag.
+- **The Race triumph set and rule 2l's tags.** In the default triumph set, a project whose triumph has one winner is
+  final (Break the Sound Barrier), so its race happens in its own world, as in the base game. The Race triumph set
+  (`LEGACY_SET_RACE`, a setup option) gives every triumph one winner, and its `_RACE` triumphs share their requirement
+  set with the default triumphs. In such a game, the Antiquity and Exploration science `_RACE` triumphs read the tags:
+  all civs that built the projects in an earlier world qualify on the same turn, at the world start, and the engine
+  picks the winner. Not tested (the tests use the default set). A full fix needs rules per setup option, as Catch-up
+  Research has; until players use the Race set, it stays an open check.
 - **The AI's triumphs from tags (rule 2l).** The engine evaluates the same requirement for every player, and the
   scenarios prove it for slot 0. In the 3-world run 20261107-173221-w2 no AI built a project of a later age early, so no
   AI triumph from a tag was observed. The game's legacy log (`Player_Legacies.csv`) lists only some triumphs, also in

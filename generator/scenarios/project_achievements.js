@@ -2,11 +2,13 @@
 // --age-points 8; suite: ContinuousAgesLive.json). Slot 0 is a leading civ (its Breakthroughs are granted).
 // Rule 2l: achievement projects are built at the civ's own age in any world, once per game (a narrative tag), and the
 // triumphs of their age read the tag. Rule 2k: final projects only in their own world age.
+// Break the Sound Barrier is final (its Modern science triumph has one winner): blocked in the Exploration world, built
+// in the Modern world with the base game's triumph; Trans-Oceanic Flight is the Modern achievement under test.
 // Checks that must pass without the rules too (controls): no project before its tech; each project can be started once
 // its tech is done; the rewritten Antiquity triumph triggers in its own world; final projects in their own world.
 // Checks that fail without the rules (--disable-rule achieve --disable-rule worldproj): the tags, the projects blocked
 // in later worlds, the triumphs at world start, the final project blocked outside its world.
-// Phase 4's save CA_TAGTEST_EX is read by project_tags_load.js in a new game process (suite ContinuousAgesLiveLoad.json).
+// Phase 3's save CA_TAGTEST_EX is read by project_tags_load.js in a new game process (suite ContinuousAgesLiveLoad.json).
 const me = GameContext.localPlayerID;
 const settle = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
 const checks = [];
@@ -131,21 +133,27 @@ expect("test: after the transition, none of the 4 can be started again", FOUR.ev
 const wp = globalThis.caWorldProjects ?? {};
 const nodeOf = (p) => wp[p] ? [wp[p].node, wp[p].depth] : null;
 await grantTo("NODE_TECH_CA_MODERN_BREAKTHROUGH", 1);
-for (const p of ["PROJECT_LAUNCH_SATELLITE", "PROJECT_CREWED_SPACE_FLIGHT_PREP", "PROJECT_BREAK_SOUND_BARRIER"]) { const n = nodeOf(p); if (n?.[0]) await grantTo(n[0], n[1]); }
+for (const p of ["PROJECT_LAUNCH_SATELLITE", "PROJECT_CREWED_SPACE_FLIGHT_PREP", "PROJECT_BREAK_SOUND_BARRIER", "PROJECT_TRANS_OCEANIC_FLIGHT"]) {
+  const n = nodeOf(p); if (n?.[0]) await grantTo(n[0], n[1]);
+}
 const pad = await place("BUILDING_LAUNCH_PAD"), air = await place("BUILDING_AIRFIELD");
 await settle();
 const modern = { pad, air, satellite: can("PROJECT_LAUNCH_SATELLITE"), prep: can("PROJECT_CREWED_SPACE_FLIGHT_PREP"), sound: can("PROJECT_BREAK_SOUND_BARRIER"),
-  groups: { satellite: wp.PROJECT_LAUNCH_SATELLITE?.final, prep: wp.PROJECT_CREWED_SPACE_FLIGHT_PREP?.final, sound: wp.PROJECT_BREAK_SOUND_BARRIER?.final } };
+  flight: can("PROJECT_TRANS_OCEANIC_FLIGHT"),
+  groups: { satellite: wp.PROJECT_LAUNCH_SATELLITE?.final, prep: wp.PROJECT_CREWED_SPACE_FLIGHT_PREP?.final, sound: wp.PROJECT_BREAK_SOUND_BARRIER?.final,
+    flight: wp.PROJECT_TRANS_OCEANIC_FLIGHT?.final } };
 if (pad) {
   expect("Modern achievement in the Exploration world: Launch Satellite can be started (Launch Pad placed)", modern.satellite === true, modern);
-  expect("test: final project outside its world: Crewed Space Flight Prep cannot be started (rule 2k)", modern.prep === false, modern);
+  expect("test: final project outside its world: Crewed Space Flight Prep cannot be started (rule 2k, repeatable)", modern.prep === false, modern);
 } else expect("a Launch Pad was placed (without it the Modern achievement and the final project are not tested: FAIL, not a skip)", false, modern);
 if (air) {
-  expect("Modern achievement in the Exploration world: Break the Sound Barrier can be started (Airfield placed)", modern.sound === true, modern);
-  await complete("PROJECT_BREAK_SOUND_BARRIER");
-  expect("Break the Sound Barrier completed: its tag is there and it cannot be started again",
-    tag("PROJECT_BREAK_SOUND_BARRIER") === 1 && !can("PROJECT_BREAK_SOUND_BARRIER"), { tag: tag("PROJECT_BREAK_SOUND_BARRIER") });
-} else expect("an Airfield was placed (without it the Modern triumph is not tested: FAIL, not a skip)", false, modern);
+  // Break the Sound Barrier is final: its Modern science triumph has one winner (option A of 2026-11-07).
+  expect("test: final project outside its world: Break the Sound Barrier cannot be started (rule 2k, one-winner triumph)", modern.sound === false, modern);
+  expect("Modern achievement in the Exploration world: Trans-Oceanic Flight can be started (Airfield placed)", modern.flight === true, modern);
+  await complete("PROJECT_TRANS_OCEANIC_FLIGHT");
+  expect("Trans-Oceanic Flight completed: its tag is there and it cannot be started again",
+    tag("PROJECT_TRANS_OCEANIC_FLIGHT") === 1 && !can("PROJECT_TRANS_OCEANIC_FLIGHT"), { tag: tag("PROJECT_TRANS_OCEANIC_FLIGHT") });
+} else expect("an Airfield was placed (without it Trans-Oceanic Flight and Break the Sound Barrier are not tested: FAIL, not a skip)", false, modern);
 // A save for the test in a new game process (project_tags_load.js).
 const saved = Network.saveGame({ Location: SaveLocations.LOCAL_STORAGE, LocationCategories: SaveLocationCategories.NORMAL,
   Type: GameStateStorage.getGameConfigurationSaveType(), ContentType: SaveFileTypes.GAME_STATE, FileName: "CA_TAGTEST_EX", Overwrite: true });
@@ -190,11 +198,23 @@ const s = Object.fromEntries(FOUR.map((p) => [p.slice(8), { can: can(p), tag: ta
 expect("test: after two transitions, the 4 tags are still there", FOUR.every((p) => s[p.slice(8)].tag === 1), s);
 expect("test: after two transitions, none of the 4 can be started again", FOUR.every((p) => !s[p.slice(8)].can), s);
 if (modern.air) {
-  const t0 = { turn: Game.turn, mo2: triggered("LEGACY_MO_SCIENTIFIC_2") };
-  for (let i = 0; i < 2 && triggered("LEGACY_MO_SCIENTIFIC_2") !== true; i++) await nextTurn();
-  expect("test: the Modern science triumph triggers at world start (Break the Sound Barrier built in the Exploration world)",
-    triggered("LEGACY_MO_SCIENTIFIC_2") === true, { t0, turn: Game.turn, tag: tag("PROJECT_BREAK_SOUND_BARRIER") });
-  expect("test: Break the Sound Barrier cannot be started again in its own world", !can("PROJECT_BREAK_SOUND_BARRIER"), { tag: tag("PROJECT_BREAK_SOUND_BARRIER") });
+  // A Modern achievement through the transition to its own world.
+  expect("test: Trans-Oceanic Flight (built in the Exploration world) keeps its tag and cannot be started in its own world",
+    tag("PROJECT_TRANS_OCEANIC_FLIGHT") === 1 && !can("PROJECT_TRANS_OCEANIC_FLIGHT"), { tag: tag("PROJECT_TRANS_OCEANIC_FLIGHT"), d: diag() });
+  // Break the Sound Barrier is final (its Modern science triumph has one winner): base-game behavior in its own world.
+  const before = { mo2: triggered("LEGACY_MO_SCIENTIFIC_2"), can: can("PROJECT_BREAK_SOUND_BARRIER") };
+  expect("control: the final project Break the Sound Barrier can be started in its own world", before.can === true, { before, d: diag() });
+  expect("control: the Modern science triumph is not earned before Break the Sound Barrier is built", before.mo2 === false, before);
+  if (before.can) {
+    Game.CityOperations.sendRequest(cap().id, CityOperationTypes.BUILD, { ProjectType: Database.makeHash("PROJECT_BREAK_SOUND_BARRIER"), InsertMode: CityOperationsParametersValues.Exclusive });
+    await settle();
+    cap().BuildQueue.completeProduction();
+    await settle(3000);
+    for (let i = 0; i < 2 && triggered("LEGACY_MO_SCIENTIFIC_2") !== true; i++) await nextTurn();
+  }
+  expect("control: Break the Sound Barrier built in its own world earns the Modern science triumph (the base game's rule)",
+    triggered("LEGACY_MO_SCIENTIFIC_2") === true, { turn: Game.turn });
+  expect("Break the Sound Barrier is not an achievement: it leaves no tag", tag("PROJECT_BREAK_SOUND_BARRIER") === 0, { tag: tag("PROJECT_BREAK_SOUND_BARRIER") });
 }
 if (modern.pad) {
   const d = diag();

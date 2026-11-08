@@ -1455,12 +1455,31 @@ def project_groups(sims: dict, projects: dict[str, set[str]]) -> dict[str, dict]
       - it grants legacy path points itself (EFFECT_PLAYER_GRANT_VICTORY_POINT), or needs a completed legacy path
         (RequireCompletedLegacyPathType): a legacy path exists only in its world age;
       - it can be repeated (MaxPlayerInstances not 1): "once per game" does not apply;
-      - it does not have exactly one tech unlock (rule 2l keeps the tech as the gate).
+      - it does not have exactly one tech unlock (rule 2l keeps the tech as the gate);
+      - a triumph of its age in the default triumph set needs it and has one winner (FirstPlayerOnly: the Modern
+        science triumph of Break the Sound Barrier). Built early, every civ with the tag would qualify on the same turn
+        at the world start, and the engine, not the first to complete it, would pick the winner.
     Each entry: ages, final, why (the first reason), node and depth of the tech unlock, tag (rule 2l's record)."""
     out = {}
+    one_winner = {}  # age -> projects that a one-winner default triumph of that age needs
+    for age, sim in sims.items():
+        needs = defaultdict(set)  # requirement set -> projects that its HAS_COMPLETED_PROJECT requirements name
+        for f in sorted(set(sim.requirement_sets.values())):
+            if "legac" in Path(f).name.lower():
+                for rs in ET.parse(effect_file(f)).getroot():
+                    if c.strip_ns(rs.tag) == "RequirementSet":
+                        for r in rs.iter():
+                            if c.strip_ns(r.tag) == "Requirement" and r.get("type") == "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT":
+                                needs[rs.get("id")] |= set(argument_values(r, "ProjectType"))
+        rows = sim.db.execute("SELECT m.RequirementSetID FROM LegacyModifiers m JOIN Legacies l ON l.LegacyType = m.LegacyType "
+                              "JOIN Legacy_LegacySets s ON s.LegacyType = m.LegacyType "
+                              "WHERE s.LegacySetType = 'LEGACY_SET_DEFAULT' AND l.FirstPlayerOnly IN (1, 'true')").fetchall()
+        one_winner[age] = {p for (sid,) in rows for p in needs.get(sid, ())}
     for p, ages in projects.items():
         sim = sims[min(ages, key=AGES.index)]
         why = []
+        if any(p in one_winner[a] for a in ages):
+            why.append("a one-winner triumph needs it")
         for f in sorted(set(sim.requirement_sets.values()) | set(sim.modifiers.values())):
             if "victor" in Path(f).name.lower() and any(
                     c.strip_ns(el.tag) == "Requirement" and el.get("type") == "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT"
