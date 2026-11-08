@@ -1732,6 +1732,8 @@ PROBES = {
     # Does a GameModifiers row of the mod attach when a save of an earlier version loads (a TraitModifiers row did not:
     # update_040.js, 2026-11-07)? An unlock of Spherical Earth in every city, with no requirement.
     "attach": [],
+    # Negative control of ocean_cross_world.js: Shipbuilding does not give its deep-ocean protection (SQL only).
+    "ocean_unprotected": [],
 }
 
 
@@ -1743,6 +1745,8 @@ def probe_modifiers(name: str) -> tuple[list[ET.Element], list[str], list[str]]:
         m = ET.Element(f"{g}Modifier", {"id": "CA_PROBE_GAME_UNLOCK", "collection": "COLLECTION_ALL_CITIES", "effect": "EFFECT_CITY_UNLOCK_PROJECT"})
         ET.SubElement(m, f"{g}Argument", {"name": "ProjectType"}).text = "PROJECT_SPHERICAL_EARTH"
         return [m], ["INSERT INTO GameModifiers (ModifierId) VALUES ('CA_PROBE_GAME_UNLOCK');"], [{"id": "CA_PROBE_GAME_UNLOCK"}]
+    if name == "ocean_unprotected":
+        return [], ["DELETE FROM ProgressionTreeNodeUnlocks WHERE TargetKind = 'KIND_MODIFIER' AND TargetType = 'MOD_TECH_EX_NO_OCEAN_DAMAGE';"], []
     for mid, attrs, unit, extra, turn in PROBES[name]:
         m = ET.Element(f"{g}Modifier", {"id": mid, "collection": "COLLECTION_OWNER", "effect": "EFFECT_PLAYER_DISABLE_BUILD_UNIT", **attrs})
         reqs = ET.SubElement(m, f"{g}OwnerRequirements")
