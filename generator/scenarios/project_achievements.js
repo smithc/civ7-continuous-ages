@@ -139,13 +139,13 @@ const modern = { pad, air, satellite: can("PROJECT_LAUNCH_SATELLITE"), prep: can
 if (pad) {
   expect("Modern achievement in the Exploration world: Launch Satellite can be started (Launch Pad placed)", modern.satellite === true, modern);
   expect("test: final project outside its world: Crewed Space Flight Prep cannot be started (rule 2k)", modern.prep === false, modern);
-} else expect("SKIPPED: no Launch Pad could be placed (Modern achievement and final project not tested here)", true, modern);
+} else expect("a Launch Pad was placed (without it the Modern achievement and the final project are not tested: FAIL, not a skip)", false, modern);
 if (air) {
   expect("Modern achievement in the Exploration world: Break the Sound Barrier can be started (Airfield placed)", modern.sound === true, modern);
   await complete("PROJECT_BREAK_SOUND_BARRIER");
   expect("Break the Sound Barrier completed: its tag is there and it cannot be started again",
     tag("PROJECT_BREAK_SOUND_BARRIER") === 1 && !can("PROJECT_BREAK_SOUND_BARRIER"), { tag: tag("PROJECT_BREAK_SOUND_BARRIER") });
-} else expect("SKIPPED: no Airfield could be placed (the Modern triumph is not tested)", true, modern);
+} else expect("an Airfield was placed (without it the Modern triumph is not tested: FAIL, not a skip)", false, modern);
 // A save for the test in a new game process (project_tags_load.js).
 const saved = Network.saveGame({ Location: SaveLocations.LOCAL_STORAGE, LocationCategories: SaveLocationCategories.NORMAL,
   Type: GameStateStorage.getGameConfigurationSaveType(), ContentType: SaveFileTypes.GAME_STATE, FileName: "CA_TAGTEST_EX", Overwrite: true });
