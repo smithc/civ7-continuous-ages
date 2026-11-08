@@ -1356,10 +1356,23 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                 commanders = {"ARMY_COMMANDER", "FLEET_COMMANDER", "AERODROME_COMMANDER", "SQUADRON_COMMANDER"}
                 if "great_people" not in need_cache:
                     need_cache["great_people"] = set()
+                    need_cache["religious_native"] = defaultdict(set)  # rule 2m: religious unit -> world ages that define it
                     for w in order:
                         sim = c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True)
                         need_cache["great_people"] |= {t.replace("UNIT_", "", 1) for (t,) in sim.db.execute(
                             "SELECT Type FROM TypeTags WHERE Tag = 'UNIT_CLASS_GREATPERSON'")}
+                        for (t,) in sim.db.execute("SELECT UnitType FROM Units WHERE SpreadCharges > 0 OR UnitType IN "
+                                                   "(SELECT Type FROM TypeTags WHERE Tag = 'UNIT_CLASS_RELIGIOUS')"):
+                            need_cache["religious_native"][t.replace("UNIT_", "", 1)].add(w)
+                # Rule 2m: a religious unit is removed at the load into a world age that does not define it (religion is a
+                # world system; the base game removes them too). Only then: a religious unit gone at the load into its own
+                # world still fails.
+                rel_native = need_cache["religious_native"]
+                rule_2m = {u: n for u, n in lost_civil.items() if u in rel_native and nxt not in rel_native[u]}
+                if rule_2m:
+                    lines.append(f"  - rule 2m: religious units removed at the load into {nxt} (their world age is "
+                                 f"{', '.join(sorted({a for u in rule_2m for a in rel_native[u]}))}): {rule_2m}")
+                lost_civil = {u: n for u, n in lost_civil.items() if u not in rule_2m}
                 known_civil = {u: n for u, n in lost_civil.items() if u in need_cache["great_people"] or u == "PHYSICIAN"
                                or need_cache["replaces"].get("UNIT_" + u, "").replace("UNIT_", "") in commanders}
                 rest_civil = {u: n for u, n in lost_civil.items() if u not in known_civil}

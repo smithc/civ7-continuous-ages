@@ -189,6 +189,7 @@ class WorldBuild:
         self.kept_resources: list[dict] = []  # rule 2j (kept_resources), set by main()
         self.text_preferred: dict[str, str] = {}  # rule 2j tooltips: tag -> the age whose text is used
         self.project_groups: dict[str, dict] = {}  # rules 2k and 2l (project_groups), set by main()
+        self.religious_units: dict[str, set[str]] = {}  # rule 2m (religious_units), set by main()
         self.legacy_rewrites: list[tuple] = []  # rule 2l: triumph requirement sets that read the tags
 
     # -- content ---------------------------------------------------------------
@@ -648,6 +649,31 @@ class WorldBuild:
                   "--     can start the project only while its owner has the tech and not the tag; the triumphs of the world age",
                   "--     read the tag instead of 'completed in this world' (copies CA_ONCE_<requirement set>)."] + a_lines + [""]
         defs += a_defs
+        # Religious units follow religion, a world system (religious_units()). After rule 2c (every unit kept), so that
+        # the retain rows of these units can go: the game then removes them at the load into a world that does not
+        # define them, as the base game does.
+        off = "religion" in disabled_rules(args)
+        rel = [] if off else [u for u, ages in self.religious_units.items() if self.world not in ages]
+        lines += ["-- 2m. Religious units are trained, bought and kept only in the world age that defines them (religion is a",
+                  "--     world system): here they cannot be trained or bought."]
+        lines += [f"UPDATE Units SET CanTrain = 0, CanPurchase = 0 WHERE UnitType = '{u}';" for u in rel]
+        # The engine reads Unit_TransitionRetains of the world that ENDS: each age's base list names its own unique
+        # commanders (Antiquity: Hazarapatis, Legatus; Exploration: Noyan; Modern: Mwami). A row deleted in the Modern data
+        # did not remove a missionary at the Modern load (live test 20261107-204942-w1). So the row goes in the world before
+        # the one that does not define the unit, and the game removes the unit when that world ends.
+        nxt = AGES[AGES.index(self.world) + 1] if self.world != AGES[-1] else None
+        leave = [] if off or nxt is None else [u for u, ages in self.religious_units.items() if nxt not in ages]
+        lines += ["--     Not kept into the next world when that world does not define them (the game removes them, as the base game does)."]
+        lines += [f"DELETE FROM Unit_TransitionRetains WHERE UnitType = '{u}';" for u in leave]
+        # In their own world they follow the system, not the civ's age: the base game gives them no tech (they need a
+        # Temple and the civ's founded religion), so the Breakthrough unlock that rules 2b and 2d add goes (a civ behind
+        # its tech Breakthrough had no missionaries while religions spread around it).
+        native = [] if "religion" in disabled_rules(args) else [u for u, ages in self.religious_units.items() if self.world in ages]
+        gates = ", ".join(f"'{GATES[a]}'" for a in GATES)
+        lines += ["--     In their own world they need no Breakthrough (as in the base game: a Temple and a founded religion)."]
+        lines += [f"DELETE FROM ProgressionTreeNodeUnlocks WHERE TargetKind = 'KIND_UNIT' AND TargetType = '{u}' "
+                  f"AND ProgressionTreeNodeType IN ({gates});" for u in native]
+        lines += [""]
         lines += ["-- 5. Baseline adapters."] + baseline_lines + [""]
         # The Exploration civ trait's free Cog came at the world transition to civs still in Antiquity,
         # and a second time to civs that got it at their gate (iteration 20261024-224137). One source:
@@ -1448,6 +1474,22 @@ def world_projects(sims: dict) -> dict[str, set[str]]:
     return {p: ages for p, ages in sorted(out.items()) if len(ages) < len(AGES)}
 
 
+def religious_units(sims: dict) -> dict[str, set[str]]:
+    """Rule 2m: religious units (TypeTags UNIT_CLASS_RELIGIOUS, or SpreadCharges > 0) and the world ages whose own data
+    defines them (today the Exploration age: the Missionary, Hawaii's Kahuna, Majapahit's Pedanda, Shawnee's
+    Hoceepkileni). Religion is a world system: religions are founded and spread, with their beliefs, only in the
+    Exploration world; the Modern data removes the religion screen (CAPABILITY_RELIGION_UI) and has no beliefs. As
+    content of every world these units were trained in the Antiquity world before any religion could exist, and in the
+    Modern world, where their conversions earn nothing but change the cities that the founder's Modern legacy cards
+    count (a player report of 2026-11-01). A unit that every age defines is left out."""
+    out: dict[str, set[str]] = defaultdict(set)
+    for age, sim in sims.items():
+        for (u,) in sim.db.execute("SELECT UnitType FROM Units WHERE SpreadCharges > 0 OR UnitType IN "
+                                   "(SELECT Type FROM TypeTags WHERE Tag = 'UNIT_CLASS_RELIGIOUS')"):
+            out[u].add(age)
+    return {u: ages for u, ages in sorted(out.items()) if len(ages) < len(AGES)}
+
+
 def project_groups(sims: dict, projects: dict[str, set[str]]) -> dict[str, dict]:
     """Rules 2k and 2l: each project of world_projects() is FINAL (it stays with its world age, rule 2k) or an
     ACHIEVEMENT (built at the civ's own age, once per game, rule 2l). Final, from the project's own age data:
@@ -1555,6 +1597,8 @@ RULE_PROOFS = {
     "2j": "old_resources.js (an Antiquity resource assigned in the Exploration world gives its Antiquity effect)",
     "2k": "world_projects.js (finals: build report only, all need a building); project_achievements.js",
     "2l": "project_achievements.js (once per game across a world transition; the triumph reads the tag); world_projects.js",
+    "2m": "religious_units.js (Antiquity), religion_modern.js (removed at the Modern load, blocked there), religion_lagging.js "
+          "(no Breakthrough needed in the Exploration world); RELOADUNITS (rule 2m removals named, others still fail)",
     "3": "GOV-AGE (a government of another age: FAIL)",
     "4": "test setting",
     "5": "meet_distant.js (meeting flag); deep_ocean_turn.js and ocean_damage.js (ocean travel); BUILD and GATE (reports)",
@@ -1582,7 +1626,8 @@ DISABLE_RULES = {"2i": "unique units block their base units again", "6b": "no de
                  "meet": "no meeting flag at the Exploration Breakthrough", "civic-gate": "the 0.2.1 civic dead end",
                  "oldres": "kept resources of an earlier age have no effects and the first age's text (up to 0.4.0)",
                  "worldproj": "final projects can be built in every world age (up to 0.4.0)",
-                 "achieve": "achievement projects have no once-per-game record and their triumphs read 'completed in this world' (up to 0.4.0)"}
+                 "achieve": "achievement projects have no once-per-game record and their triumphs read 'completed in this world' (up to 0.4.0)",
+                 "religion": "religious units can be trained and are kept in every world age (up to 0.4.0)"}
 
 
 def disabled_rules(args) -> set:
@@ -1737,9 +1782,13 @@ def main() -> None:
     print("final projects, with their world age (rule 2k): " + ", ".join(
         f"{p[8:]} ({i['why']})" for p, i in projects.items() if i["final"]))
     print("achievement projects, once per game (rule 2l): " + ", ".join(p[8:] for p, i in projects.items() if not i["final"]))
+    religion = religious_units(dlc_sims)
+    print("religious units, only in their world age (rule 2m): " + ", ".join(
+        f"{u[5:]} ({'/'.join(NAME[a] for a in AGES if a in ages)})" for u, ages in religion.items()))
     for b in builds:
         b.kept_resources = kept[b.world]
         b.project_groups = projects
+        b.religious_units = religion
         b.starters = starters
         b.civ_content = civ_content
         b.replace_gaps = gaps
@@ -1913,6 +1962,8 @@ def write_report(builds) -> None:
         out.append(f"- Final projects of another world age (rule 2k; blocked here): {', '.join(blocked) or 'none'}")
         out.append(f"- Achievement projects (rule 2l; any world, once per game): "
                    f"{', '.join(p for p, i in b.project_groups.items() if not i['final']) or 'none'}")
+        out.append(f"- Religious units of another world age (rule 2m; not trained, bought or kept here): "
+                   f"{', '.join(u for u, ages in b.religious_units.items() if b.world not in ages) or 'none'}")
         out += [f"- Triumph that reads the tags (rule 2l): {legacy} via {sid} -> {copy} ({', '.join(ps)})"
                 for sid, copy, ps, legacy in b.legacy_rewrites]
         for e in b.kept_resources:

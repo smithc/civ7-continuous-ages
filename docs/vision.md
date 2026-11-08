@@ -60,7 +60,8 @@ Some items look like content but have a use only through a world system. **Such 
 feeds.** Projects that a victory requires are built only in their own world age. Other projects that give victory
 points or a triumph are built at the civ's own age, once per game, and their triumph counts when the world reaches
 that age (see [Mechanics](mechanics.md#world-systems)). A resource that stays on the map from an earlier age keeps
-the effects of its last valid age (see [Mechanics](mechanics.md#resources)). Religious units are an open question.
+the effects of its last valid age (see [Mechanics](mechanics.md#resources)). Religious units follow religion: they are
+trained and kept only in the Exploration world, where religions spread (see [Mechanics](mechanics.md#world-systems)).
 
 ## What the mod does not change
 

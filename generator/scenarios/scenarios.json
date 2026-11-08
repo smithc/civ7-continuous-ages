@@ -9,5 +9,8 @@
 	{"file": "old_resources.js", "set": ["StartAge=AGE_EXPLORATION"], "proves": "rule 2j: a resource of an earlier age (Hides) assigned in the Exploration world gives its Antiquity effect (a player report)"},
 	{"file": "world_projects.js", "set": [], "proves": "rule 2l: in the Antiquity world, a civ with the tech can start Exploration achievement projects (Heliocentric Model, Invent Calculus) and the Antiquity ones"},
 	{"file": "world_projects.js", "set": ["StartAge=AGE_EXPLORATION"], "proves": "rule 2l: in the Exploration world, a civ that never built them can start the Antiquity achievement projects (Chart the Stars, Spherical Earth)"},
+	{"file": "religious_units.js", "set": [], "proves": "rule 2m: in the Antiquity world a leading civ with a religion cannot train or buy missionaries; the Swordsman (same Breakthrough) it can"},
+	{"file": "religion_modern.js", "set": ["StartAge=AGE_EXPLORATION"], "build": ["--age-points", "8"], "timeout": 1200, "proves": "rule 2m: a missionary bought in the Exploration world is removed at the Modern load and not replaced; in the Modern world missionaries cannot be trained or bought (a player report)"},
+	{"file": "religion_lagging.js", "set": ["StartAge=AGE_EXPLORATION"], "proves": "rule 2m: in the Exploration world a civ behind its tech Breakthrough, with a Temple and a religion, can train and buy missionaries (as in the base game)"},
 	{"file": "project_achievements.js", "set": [], "build": ["--age-points", "8"], "timeout": 1200, "proves": "rule 2l: achievement projects once per game across a world transition, and the Exploration science triumph counts Heliocentric Model built in the Antiquity world (a player report)"}
 ]

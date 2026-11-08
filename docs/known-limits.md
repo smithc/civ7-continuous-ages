@@ -80,6 +80,9 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
 
 ## Open checks
 
+- **Religious units in a game saved in the Modern world (rule 2m).** The game removes religious units at the load into
+  the Modern world. A 0.4.0 game saved in the Modern world already holds its missionaries: they stay, and they can still
+  convert cities, but no new one can be trained or bought. Not tested with a real 0.4.0 save.
 - **The Race triumph set and rule 2l's tags.** In the default triumph set, a project whose triumph has one winner is
   final (Break the Sound Barrier), so its race happens in its own world, as in the base game. The Race triumph set
   (`LEGACY_SET_RACE`, a setup option) gives every triumph one winner, and its `_RACE` triumphs share their requirement

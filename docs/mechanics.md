@@ -167,7 +167,7 @@ A civ can use content of its own age and of earlier ages. Content of a later age
 Breakthrough. This applies even after the world has moved on:
 
 - techs of a later age, and units, buildings, improvements, wonders and projects that they unlock (the projects
-  that feed a world system have their own rules: see [World systems](#world-systems));
+  that feed a world system, and religious units, have their own rules: see [World systems](#world-systems));
 - civics of a later age, and what they unlock, need the civic Breakthrough of that age (see
   [Civics](#civics));
 - "starter" units and buildings that a later age gives at its start;
@@ -281,6 +281,16 @@ movement), and its triumph counts when the world reaches that age. Only the Anti
 triumphs read tags; no Modern triumph does, so no early project moves a civ along the Modern science legacy path that
 Launch Rocket needs. The build stops if an effect would unlock a gated project, or if a triumph cannot be rewritten
 (a game patch). The Race triumph set, a setup option, is an open check (see [Known limits](known-limits.md#open-checks)).
+
+**Religious units follow religion (rule 2m).** Religions are founded and spread, with their beliefs, only in the
+Exploration world. The base game's Modern world has no beliefs and no religion screen; religion lives on there only in
+the founder's legacy cards, which pay for each city that follows the religion. The religious units (the Missionary, and
+the unique Kahuna, Pedanda and Hoceepkileni) are therefore trained, bought and kept only in the Exploration world: in the
+Antiquity and Modern worlds a city cannot train or buy them, and the game removes them at the load into the Modern
+world, as in the base game. Up to version 0.4.0 they were content of every world: a leading civ could train missionaries
+in the Antiquity world before any religion could exist, and in the Modern world a missionary's conversions earned nothing
+but changed the cities that the legacy cards count (a player report). The generator finds the units in the game data
+(`religious_units` in `build_mod.py`).
 
 Two Exploration rules are not world systems, because they follow from ocean travel, which a civ gets at
 its own Breakthrough: deep-ocean damage and meeting the civs of the Distant Lands (see
