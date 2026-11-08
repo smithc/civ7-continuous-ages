@@ -22,7 +22,7 @@ import json
 import re
 import hashlib
 import shutil
-from collections import Counter as _C
+from collections import Counter as _C, defaultdict
 import subprocess
 import sys
 from datetime import datetime
@@ -954,6 +954,45 @@ def unit_classes():
     return _UNIT_CLASSES
 
 
+def once_per_player_projects() -> set[str]:
+    """Projects with MaxPlayerInstances 1 in the game's own data (every age, DLC too)."""
+    out = set()
+    for root in (c.DEFAULT_GAME_DIR / "Base" / "modules", c.DEFAULT_GAME_DIR / "DLC"):
+        for f in root.rglob("projects*.xml"):
+            for m in re.finditer(r'<Row\b[^>]*\bProjectType="([A-Z0-9_]+)"[^>]*\bMaxPlayerInstances="1"', f.read_text(encoding="utf-8", errors="replace")):
+                out.add(m.group(1))
+    return out
+
+
+def project_repeats(qfile: Path) -> tuple[list[str], bool]:
+    """PROJECT REPEAT: a civ completes a once-per-player project more than once in the game (the game forgets project
+    completions at a world transition; player report of 2026-11-01: Chart the Stars and Spherical Earth again in each
+    later world). A completion is a CityBuildQueue row whose production reaches the cost. A turn number that drops starts
+    a new world age. Rules 2k and 2l must keep the count at one."""
+    once = once_per_player_projects()
+    done = defaultdict(list)  # (player, project) -> [(world index, turn)]
+    world, prev = 0, 0
+    for row in csv.reader(qfile.open(encoding="utf-8", errors="replace")):
+        if len(row) < 7 or not row[0].strip().isdigit():
+            continue
+        turn = int(row[0])
+        if turn < prev - 50:
+            world += 1
+        prev = turn
+        item = row[4].strip()
+        try:
+            complete = float(row[5]) >= float(row[6]) > 0
+        except ValueError:
+            continue
+        if item in once and complete and (world, turn) not in done[(row[1].strip(), item)]:
+            done[(row[1].strip(), item)].append((world, turn))
+    repeats = {k: v for k, v in done.items() if len(v) > 1}
+    lines = ["## Once-per-player projects completed more than once (PROJECT REPEAT)", ""]
+    lines += [f"- PROJECT REPEAT FAIL: player {p} completed {item} {len(v)} times (world, turn): {v}" for (p, item), v in sorted(repeats.items())]
+    lines += [] if repeats else [f"- none ({sum(len(v) for v in done.values())} completions of {len(once)} once-per-player projects)"]
+    return lines + [""], bool(repeats)
+
+
 def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transitions: int | None = None) -> tuple[bool, list[str]]:
     lines, failed = [], False
     # Automation result
@@ -1677,6 +1716,9 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
         replace_lines, replace_failed = replace_starts(qfile, players)
         lines += replace_lines
         failed |= replace_failed
+        repeat_lines, repeat_failed = project_repeats(qfile)
+        lines += repeat_lines
+        failed |= repeat_failed
     lines += ["## Exploration items produced (first turn in production)", ""]
     lines += [f"- {k}: turn {v}" for k, v in sorted(first.items(), key=lambda x: x[1])] or ["- none"]
     lines += ["", "## Autoplay runner output", "", "```", autoplay_out.strip(), "```", ""]

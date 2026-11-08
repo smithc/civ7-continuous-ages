@@ -101,6 +101,7 @@ automation, and writes `build/iterations/<time>/REPORT.md` with the logs and a c
 | Game speeds | `--suite ContinuousAgesTransitionQuick.json`, `...Epic.json`, `...Marathon.json` (marathon: `--turns 1500 --timeout 240`) | 11 / 20 / 32 min |
 | Catch-up Research at +100% or +50% (to the Exploration transition) | `python iterate.py --suite ContinuousAgesTransitionCatchUp.json --no-fast-test --turns 200 --observe NONE --timeout 60` (or `...CatchUp50.json`) | about 8 min |
 | One human slot (autoplay plays it) | `--suite ContinuousAgesTransitionHuman.json --observe 0` | about 15 min |
+| A live game from a save, in a new game process (rule 2l's tags) | `python live.py --worker 1 scenario scenarios/project_tags_load.js --suite ContinuousAgesLiveLoad.json` (loads `CA_TAGTEST_EX`, which `project_achievements.js` saves) | about 1 min |
 | Earth map | `--suite ContinuousAgesEarth.json` | varies |
 | Time-Tested civs from the start (Mughal, Norman, Mongolia, Qing, Inca, Ming): unique units and their base units (rule 2i) | `python iterate.py --suite ContinuousAgesTimeTested.json --fast-test 0.4 --turns 700 --observe NONE --timeout 150` | about 15 min |
 | The default setup: random AI civs, which can come from any age (Time-Tested) | `python iterate.py --suite ContinuousAgesDefault.json --no-fast-test --turns 700 --observe NONE --timeout 150 --expect-transitions 3 --set MapSeed=1001 --set GameSeed=1001` (run several seeds) | about 16 min |

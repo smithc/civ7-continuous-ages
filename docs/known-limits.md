@@ -80,6 +80,16 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
 
 ## Open checks
 
+- **First-player-only triumphs and rule 2l's tags.** The Modern science triumph of Break the Sound Barrier
+  (`LEGACY_MO_SCIENTIFIC_2`) is first-player-only in the default triumph set, and in the Race triumph set
+  (`LEGACY_SET_RACE`, a setup option) every `_RACE` triumph is. Rule 2l rewrites the shared requirement set, so all civs
+  that built the project in an earlier world qualify at the same moment, at the world start, and the engine picks one.
+  Not tested: the test game had one civ with the tag. Possible fixes: make a project final when one of its triumphs is
+  first-player-only, or point only the triumphs that are not first-player-only at the tag.
+- **The AI's triumphs from tags (rule 2l).** The engine evaluates the same requirement for every player, and the
+  scenarios prove it for slot 0. In the 3-world run 20261107-173221-w2 no AI built a project of a later age early, so no
+  AI triumph from a tag was observed. The game's legacy log (`Player_Legacies.csv`) lists only some triumphs, also in
+  0.4.0 runs, so it cannot show it.
 - **Balance of kept military resources in the Modern world (rule 2j).** Kept Iron gives its Exploration effect in
   the Modern world: +1 Combat Strength for infantry for each Iron, up to +6, for every civ that holds Iron (an empire
   resource: no assignment is needed). Kept Salt gives +20% Production towards units. The base game removes both

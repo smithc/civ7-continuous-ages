@@ -450,6 +450,20 @@ def run_phases(file: Path, timeout: float) -> tuple[dict, list]:
     for i, code in enumerate(phases):
         if i > 0:
             last = results[-1].get("value") if results[-1].get("ok") else None
+            # A phase that started a load of a saved game (Network.loadGame) returns {reload: true} after it set
+            # globalThis.caAwaitReload = true; the next phase runs when the loaded game is ready (the marker is gone).
+            if isinstance(last, dict) and last.get("reload"):
+                time.sleep(5)
+                ok = wait(900, "globalThis.caLive?.ready === true && typeof Game !== 'undefined' && Game.turn >= 1 "
+                               "&& globalThis.caAwaitReload !== true")
+                results.append({"ok": ok, "value": {"ok": ok, "phase": f"{i}-reload"}})
+                if not ok:
+                    return {"ok": False, "error": f"the saved game did not load after phase {i}"}, results
+                evaluate(f"globalThis.caPrev = {json.dumps([r.get('value') for r in results])}; true", timeout=10)
+                results.append(evaluate(code, timeout=timeout, is_async=True))
+                if not results[-1].get("ok"):
+                    break
+                continue
             if not (isinstance(last, dict) and last.get("transition") is not None):
                 return {"ok": False, "error": f"phase {i} did not end with a transition"}, results
             chosen = choose_civ((last["transition"] or {}).get("civ"))
