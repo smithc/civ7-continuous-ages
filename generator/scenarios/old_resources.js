@@ -8,6 +8,8 @@
 //         the capital's yields rise (K's effect). Without the rule (--disable-rule oldres) they do not: this check fails.
 const me = GameContext.localPlayerID;
 const settle = (ms = 3000) => new Promise((r) => setTimeout(r, ms));
+// Wait for a state, not a fixed time: with five other games on the PC, 3 s was too short once (20261107-231233-w6).
+const until = async (f, ms = 15000) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await settle(500); return f(); };
 const checks = [];
 const expect = (name, ok, detail = {}) => {
   checks.push({ name, ok, detail });
@@ -40,7 +42,8 @@ async function put(p, type) {
   WorldBuilder.MapPlots.setResource(ResourceTypes.NO_RESOURCE, p, 0);
   await settle(1500);
   WorldBuilder.MapPlots.setResource(GameInfo.Resources.lookup(type).$index, p, 1);
-  await settle();
+  await until(() => typeAt(GameplayMap.getIndexFromLocation(p)) === type);
+  await settle(1500);
   return typeAt(GameplayMap.getIndexFromLocation(p));
 }
 // Kept resources of this world: valid in an earlier age, not in this one.
@@ -69,24 +72,26 @@ const { p, r, k } = pick;
 // Control, step 1: unassign R.
 let y = yields();
 const r1 = op(off(p));
-await settle();
+await until(() => !assigned().includes(r) && Object.keys(diff(yields(), y)).length > 0);
 const lossR = diff(yields(), y);
 expect(`control: unassigning ${r} changes the capital's yields`, r1 && Object.keys(lossR).length > 0, { lossR, assigned: assigned() });
 // Test: K on R's plot, assigned.
 const onPlot = await put(p, k);
 y = yields();
 const kAssign = op(on(p));
-await settle();
+// Without the rule the yields do not change: then this waits its full time, and the test fails as it should.
+await until(() => assigned().includes(k) && Object.keys(diff(yields(), y)).length > 0);
 const gainK = diff(yields(), y);
 expect(`${k} is on the ${pick.imp} plot and can be assigned`, onPlot === k && kAssign && assigned().includes(k), { onPlot, kAssign, assigned: assigned() });
 expect(`test: assigned ${k} (not valid in ${age}) gives its last valid age's effect`, gain(gainK), { gainK });
 // Control, step 2: R back on the plot and assigned again.
 op(off(p));
-await settle();
+await until(() => !assigned().includes(k));
+await settle(1500);
 const back = await put(p, r);
 y = yields();
 const rAssign = op(on(p));
-await settle();
+await until(() => assigned().includes(r) && Object.keys(diff(yields(), y)).length > 0);
 const gainR = diff(yields(), y);
-expect(`control: ${r} put back and assigned again gives its effect back`, back === r && rAssign && gain(gainR), { gainR, assigned: assigned() });
+expect(`control: ${r} put back and assigned again gives its effect back`, back === r && rAssign && gain(gainR), { back, rAssign, gainR, assigned: assigned() });
 return { ok: checks.every((c) => c.ok), failed: checks.filter((c) => !c.ok), checks, pick };

@@ -103,6 +103,19 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
 
 ## Open checks
 
+- **A later-age legacy civ's unique building before the civ's Breakthrough (regression 2026-11-07).** In the
+  Time-Tested run 20261107-221556-w6, Inca (played from the Antiquity world, kept its civ into the Modern world, civ
+  age Exploration) started Mexico's unique building Portal de Mercaderes in the Modern world on turn 18 (LEAK). Its
+  civic records name Mexico's nodes (`MEXICO_ORIGINS`, `MEXICO_RENAISSANCE`) from the Antiquity world on: most
+  likely its Antiquity Syncretism gave it Mexico, a Modern civ, as its legacy civ. The building is unlocked by a
+  civic of Mexico's own tree (`NODE_CIVIC_MO_MEXICO_PLANES_POLITICOS`). Cause not proven; the 0.5.0 rules do not
+  touch this path (the same suite passed in 0.4.0 with another game). Next: a scenario with a Time-Tested civ and
+  that legacy choice.
+- **A unique unit of the previous civ lost at a civ change (regression 2026-11-07).** In the Marathon run
+  20261107-222452-w2, Abbasid changed to Qajar at the Modern load (civ age Exploration). Its one Mamluk was removed,
+  and the game left no shadow for it, so the mod's shadow step made no replacement (`LOST UNITS FAIL`, one
+  cavalry). In earlier runs Mamluks were converted to Coursers one for one. Cause not known (perhaps a unit in an
+  army); the transition script did not change since 0.4.0.
 - **Religious units in a game saved in the Modern world (rule 2m).** The game removes religious units at the load into
   the Modern world. A 0.4.0 game saved in the Modern world already holds its missionaries: they stay, and they can still
   convert cities, but no new one can be trained or bought. Not tested with a real 0.4.0 save.
@@ -193,7 +206,7 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   - Workers save without the minimap picture (`AddMinimapSnapshotToSaves 0`), which the game draws on the GPU
     for each save; whether that makes the hang rarer is not known yet. Open: does the CPU load at minimum
     quality make the hang more likely? (The priority hold does not stop it: set 20261101-191259.)
-- **Extra units for a civ that keeps its civ (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
+- **Extra units from legacy-civ unique units (U-TOT-SHADOW).** A civ that keeps its civ can adopt a
   "legacy" civ of the new age with the Test of Time civic Syncretism (`MOD_SYNCRETISM`,
   `EFFECT_PLAYER_GRANT_SYNCRETIC_CHOICE`), with that civ's traits (`LegacyCivilizationTraits`), and
   can build that civ's unique units (rule 5j: after the civ's Breakthrough tech). New in version
@@ -205,10 +218,12 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   Egypt (legacy Majapahit), 7 Cetbang converted to Cogs, and 6 Cogs made. A civ of a later age played
   from the start (Time-Tested) has the Antiquity Test of Time tree, so it can also take an Antiquity
   legacy civ: iteration 20261031-125020, Inca (legacy Mississippian), 4 Burning Arrows converted to
-  Archers and 4 Warakaq made. A fix must know the
+  Archers and 4 Warakaq made. Such a Time-Tested civ can then change civ at the transition and has
+  the same extra shadows: iteration 20261107-221556-w6, Norman (legacy Rome) to Ming, 2 Legions
+  converted to Spearmen and 2 Coursers made. A fix must know the
   legacy civ, or which units the game converted, at the load. The test report names it as
-  `KNOWN LIMIT (U-TOT-SHADOW)`, only for a civ that kept its civ and only up to the number of legacy
-  unique units gone, so any other duplicate still fails.
+  `KNOWN LIMIT (U-TOT-SHADOW)`, only up to the number of legacy unique units gone (for a civ that
+  changed civ, not counting its previous civ's own unique units), so any other duplicate still fails.
 
 - **DLC content of an earlier age is not in the later worlds.** The mod copies the content of the
   other ages from the base game only (`other_age_groups(base_mods, ...)` in `build_mod.py`, the same

@@ -1304,10 +1304,14 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                     more, fewer = {}, {}
                 # Known limit (U-TOT-SHADOW, docs/known-limits.md): a civ that keeps its civ can adopt a legacy
                 # civ (Syncretism) and build its unique units; at the load the engine converts or removes them, and
-                # their extra shadows make units (iterations 20261029-150344, 152811). Only for such a civ, and
-                # at most as many units off, each way, as legacy unique units gone.
-                legacy_gone = sum(n for u, n in gone0.items() if u in legacy_unique_units()) if r_units else 0
-                if ((more or fewer) and civ_a and civ_a == civ_b and legacy_gone
+                # their extra shadows make units (iterations 20261029-150344, 152811). A Time-Tested civ that then
+                # changes civ has them too (20261107-221556-w6: Norman with Syncretism (Rome), 2 Legions, then Ming:
+                # 2 extra Coursers). At most as many units off, each way, as legacy unique units gone.
+                # Not the previous civ's own unique units: every civ can be a legacy civ, so they are in the set too
+                # (a lost Mamluk of Abbasid passed with that form, 20261107-222452-w2).
+                own_b = civ_unique_units(civ_b) if civ_a != civ_b else set()
+                legacy_gone = sum(n for u, n in gone0.items() if u in legacy_unique_units() and u not in own_b) if r_units else 0
+                if ((more or fewer) and civ_a and legacy_gone
                         and sum(more.values()) <= legacy_gone and sum(fewer.values()) <= legacy_gone):
                     lines.append(f"  - KNOWN LIMIT (U-TOT-SHADOW): {legacy_gone} legacy-civ unique units gone, "
                                  f"units off by class: more {dict(more)}, fewer {dict(fewer)}")
