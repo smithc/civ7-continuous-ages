@@ -21,7 +21,7 @@ The base game's option **Age Transition Impact** has two values:
   Age Transition."
 - **Regroup**: "Reset your empire, units, and relationships more aggressively on Age Transition."
 
-With the mod, the unit steps of the transition are the same for both values: every unit is kept, and
+With the mod, the unit steps of the transition are the same for both values: every unit is kept (except religious units at the Modern load, rule 2m), and
 the steps that Regroup adds for units (commanders moved to cities, free defenders) are not used. The
 mod's other no-reset steps (no city becomes a town, no gold or influence cap, old resources stay)
 also apply to both. Both values passed the full three-age test.
@@ -96,7 +96,8 @@ map's own step removed rural districts. Other map scripts were not tested.
 
 ## Start age and civ selection at game start
 
-- The tests start in Antiquity. A game that starts in Exploration or Modern was not tested.
+- The autoplay tests start in Antiquity. No whole game that starts in Exploration or Modern was tested; some live
+  scenarios use an Exploration start.
 - **Civ selection at game start** (Time-Tested or Apex only) works as in the base game. Time-Tested is
   the default, and with it random AI civs can also come from other ages. A civ of a later age at the
   start does not get its unique content in Antiquity, as in the base game, and it trains the base units

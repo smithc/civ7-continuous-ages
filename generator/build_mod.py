@@ -46,7 +46,7 @@ MOD_DESCRIPTION = """One continuous game. Each civilization moves through the ag
 HOW IT WORKS
 - Your own age: one joined tech tree with two Breakthrough techs. Research the Exploration Breakthrough and the Modern Breakthrough to enter the next age, when you are ready. A small banner shows "Your age / World age".
 - Civics have their own Breakthroughs: the joined civic tree has an Exploration and a Modern Breakthrough too. Research them with culture to open the next age's civics, also before your tech Breakthrough. Culture always has a use.
-- The world still moves on: the world age changes at the normal time. Crises, legacy paths, treasure fleets, the Distant Lands and victories start with the world age, as in the base game.
+- The world still moves on: the world age changes at the normal time. Crises, legacy paths, treasure fleets, the Distant Lands and victories start with the world age, as in the base game. Religion too: missionaries are trained only in the Exploration world, with no Breakthrough needed.
 - No reset: cities stay cities, armies keep all their units, gold is not capped, old resources stay, and your techs, civics, policies and buildings stay.
 - Content waits for your age: later-age techs, units, buildings, unique items and civ abilities need that age's Breakthrough tech. Later-age civics need the civic Breakthrough. This stays true after the world moves on.
 - Units upgrade across ages, for example Phalanx to Swordsman and Pikeman to Line Infantry.
@@ -371,40 +371,113 @@ class WorldBuild:
             req(owner, "REQUIREMENT_PLAYER_HAS_AT_LEAST_NUM_NARRATIVE_TAGS", {"NarrativeTagType": info["tag"], "Amount": 1}, inverse=True)
             ET.SubElement(u, f"{g}Argument", {"name": "ProjectType"}).text = p
             defs += [m, u]
-        # The triumphs of this world age that need an achievement project read its tag: a copy of each requirement set,
-        # and every row that names the set points to the copy. A set is left as it is (and reported) when a project
-        # requirement is inverse, names a project that is not an achievement, or the set is not "all of".
+        # Every check of this world age that a civ "completed" an achievement project (triumphs, legacy cards such as the
+        # Modern CARD_AT_MO_SCIENTIFIC_4, narrative stories) reads "done": completed in this world OR the tag. The tag
+        # carries a completion of an earlier world; "completed" keeps a completion that left no tag (a game of 0.4.0,
+        # updated during a world age) and the order of the completion modifiers (the tag may come after the check).
+        # One set CA_ONCE_DONE_<project> ("any of") for each project; a copy of each set or modifier that holds such a
+        # requirement, with REQUIREMENT_REQUIREMENTSET_IS_MET on CA_ONCE_DONE_<project> in its place; every row that
+        # names the original points to the copy. The build stops when a requirement is inverse, mixes achievement and
+        # other projects, or lists several projects in an "any of" set (the meaning of the list would change).
         rewrites, kept = [], []
         wanted = set(achievements)
-        cols = [(t, col) for (t,) in self.sim.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-                for col in [r[1] for r in self.sim.db.execute(f'PRAGMA table_info("{t}")')] if col.lower() == "requirementsetid"
-                and t not in ("RequirementSets", "RequirementSetRequirements")]  # the definitions themselves
+        if not wanted:
+            return lines, defs, rewrites
+        for p in achievements:
+            done = ET.Element(f"{g}RequirementSet", {"id": f"CA_ONCE_DONE_{p.removeprefix('PROJECT_')}", "type": "REQUIREMENTSET_TEST_ANY"})
+            req(done, "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT", {"ProjectType": p})
+            req(done, "REQUIREMENT_PLAYER_HAS_AT_LEAST_NUM_NARRATIVE_TAGS", {"NarrativeTagType": self.project_groups[p]["tag"], "Amount": 1})
+            defs.append(done)
+        text_cols = [(t, col) for (t,) in self.sim.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+                     for (_, col, ctype, *_r) in self.sim.db.execute(f'PRAGMA table_info("{t}")') if "TEXT" in (ctype or "TEXT").upper()]
+        set_cols = [(t, col) for t, col in text_cols if col.lower() == "requirementsetid"
+                    and t not in ("RequirementSets", "RequirementSetRequirements")]  # the definitions themselves
+        mod_cols = [(t, col) for t, col in text_cols if t not in ("Modifiers", "ModifierArguments", "DynamicModifiers", "ModifierStrings")]
+        is_met = set()  # sets that another set or modifier names through REQUIREMENT_REQUIREMENTSET_IS_MET
+        for f in sorted(set(self.sim.requirement_sets.values()) | set(self.sim.modifiers.values())):
+            for r in ET.parse(effect_file(f)).getroot().iter():
+                if c.strip_ns(r.tag) == "Requirement" and r.get("type") == "REQUIREMENT_REQUIREMENTSET_IS_MET":
+                    is_met.update(argument_values(r, "RequirementSetId"))
+
+        def project_reqs(container):
+            return [r for r in container if c.strip_ns(r.tag) == "Requirement" and r.get("type") == "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT"
+                    and set(argument_values(r, "ProjectType")) & wanted]
+
+        def rewritable(container, preqs):
+            any_of = (container.get("type") or "REQUIREMENTSET_TEST_ALL") == "REQUIREMENTSET_TEST_ANY"
+            return all(r.get("inverse") != "true" and set(argument_values(r, "ProjectType")) <= wanted
+                       and not (any_of and len(argument_values(r, "ProjectType")) > 1) for r in preqs)
+
+        def rewrite(container):
+            for r in project_reqs(container):
+                at = list(container).index(r)
+                container.remove(r)
+                for k, p in enumerate(argument_values(r, "ProjectType")):
+                    n = ET.Element(f"{g}Requirement", {"type": "REQUIREMENT_REQUIREMENTSET_IS_MET"})
+                    ET.SubElement(n, f"{g}Argument", {"name": "RequirementSetId"}).text = f"CA_ONCE_DONE_{p.removeprefix('PROJECT_')}"
+                    container.insert(at + k, n)
+
+        def users(ident, cols):
+            return [(t, col) for t, col in cols if self.sim.db.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" = ?', (ident,)).fetchone()[0]]
+
+        def dlc_reader(ident, f, used, projects):
+            """A definition of a DLC file is not copied: the mod's effects load also without that DLC, and a copy can
+            name the DLC's own rows (the Babylon narrative REQSET_11242A_NARRATIVE: xref REQ_STORY_CIVILIZATION_BABYLON;
+            without the DLC the gameplay database failed validation and the game crashed at a load, 2026-11-07).
+            Only a narrative story is left as it is (reported); any other DLC reader stops the build."""
+            if not Path(effect_file(f)).resolve().is_relative_to((_GAME_DIR / "DLC").resolve()):
+                return False
+            if {t for t, _ in used} <= {"NarrativeStories"}:
+                rewrites.append((ident, "not rewritten (a DLC narrative story)", projects, [t for t, _ in used]))
+            else:
+                kept.append(f"{ident} (DLC)")
+            return True
+
         for sid, f in sorted(self.sim.requirement_sets.items()):
-            if not wanted or "legac" not in Path(f).name.lower():
-                continue
             el = next((e for e in ET.parse(effect_file(f)).getroot() if c.strip_ns(e.tag) == "RequirementSet" and e.get("id") == sid), None)
-            preqs = [r for r in (el if el is not None else []) if c.strip_ns(r.tag) == "Requirement"
-                     and r.get("type") == "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT"]
-            named = {p for r in preqs for p in argument_values(r, "ProjectType")}
-            if not preqs or not named & wanted:
+            preqs = project_reqs(el) if el is not None else []
+            if not preqs:
                 continue
-            users = [(t, col) for t, col in cols if self.sim.db.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" = ?', (sid,)).fetchone()[0]]
-            if not users:  # another age's set, loaded with its definitions but not used in this world
-                continue
-            if not named <= wanted or any(r.get("inverse") == "true" for r in preqs) or (el.get("type") or "REQUIREMENTSET_TEST_ALL") != "REQUIREMENTSET_TEST_ALL":
+            used = users(sid, set_cols)
+            if sid in is_met or (used and not rewritable(el, preqs)):
                 kept.append(sid)
+                continue
+            if not used:  # another age's set, loaded with its definitions but not used in this world
+                continue
+            if dlc_reader(sid, f, used, sorted({p for r in preqs for p in argument_values(r, "ProjectType")})):
                 continue
             copy = ET.fromstring(ET.tostring(el))
             copy.set("id", f"CA_ONCE_{sid}")
-            for r in [r for r in copy if c.strip_ns(r.tag) == "Requirement" and r.get("type") == "REQUIREMENT_PLAYER_HAS_COMPLETED_PROJECT"]:
-                copy.remove(r)
-                for p in argument_values(r, "ProjectType"):
-                    req(copy, "REQUIREMENT_PLAYER_HAS_AT_LEAST_NUM_NARRATIVE_TAGS", {"NarrativeTagType": self.project_groups[p]["tag"], "Amount": 1})
+            rewrite(copy)
             defs.append(copy)
-            lines +=[f'UPDATE "{t}" SET "{col}" = \'CA_ONCE_{sid}\' WHERE "{col}" = \'{sid}\';' for t, col in users]
-            rewrites.append((sid, f"CA_ONCE_{sid}", sorted(named), [t for t, _ in users]))
+            lines += [f'UPDATE "{t}" SET "{col}" = \'CA_ONCE_{sid}\' WHERE "{col}" = \'{sid}\';' for t, col in used]
+            rewrites.append((sid, f"CA_ONCE_{sid}", sorted({p for r in preqs for p in argument_values(r, "ProjectType")}), [t for t, _ in used]))
+        for mid in sorted(self.sim.modifiers):
+            el = modifier_definition(self.sim, mid)
+            conts = [x for x in (el if el is not None else []) if c.strip_ns(x.tag) in ("SubjectRequirements", "OwnerRequirements")]
+            preqs = {id(x): project_reqs(x) for x in conts}
+            if not any(preqs.values()):
+                continue
+            used = users(mid, mod_cols)
+            if not used:
+                continue
+            if dlc_reader(mid, self.sim.modifiers[mid], used, sorted({p for v in preqs.values() for r in v for p in argument_values(r, "ProjectType")})):
+                continue
+            if not all(rewritable(x, preqs[id(x)]) for x in conts):
+                kept.append(mid)
+                continue
+            copy = ET.fromstring(ET.tostring(el))
+            copy.set("id", f"CA_ONCE_{mid}")
+            for x in copy:
+                if c.strip_ns(x.tag) in ("SubjectRequirements", "OwnerRequirements"):
+                    rewrite(x)
+            defs.append(copy)
+            lines += [f'UPDATE "{t}" SET "{col}" = \'CA_ONCE_{mid}\' WHERE "{col}" = \'{mid}\';' for t, col in used]
+            rewrites.append((mid, f"CA_ONCE_{mid}", sorted({p for v in preqs.values() for r in v for p in argument_values(r, "ProjectType")}),
+                             [t for t, _ in used]))
         if kept:
-            raise SystemExit(f"rule 2l: triumph requirement sets in world {self.w} that the rule cannot rewrite: {kept} (game patch?)")
+            raise SystemExit(f"rule 2l: requirement sets or modifiers in world {self.w} that check an achievement project and that "
+                             f"the rule cannot rewrite: {kept} (game patch?)")
         return lines, defs, rewrites
 
     def tree_chain(self, trees: list[str], gates: dict, gate_modifier: dict, prefix: str):
@@ -646,8 +719,9 @@ class WorldBuild:
         a_lines, a_defs, self.legacy_rewrites = self.achievement_rules(achievements)
         lines += ["-- 2l. Achievement projects (victory points, a triumph of their age; not final): built at the civ's own age",
                   "--     in any world, once per game. Completion grants a narrative tag (NARRATIVE_TAG_CA_ONCE_<project>); a city",
-                  "--     can start the project only while its owner has the tech and not the tag; the triumphs of the world age",
-                  "--     read the tag instead of 'completed in this world' (copies CA_ONCE_<requirement set>)."] + a_lines + [""]
+                  "--     can start the project only while its owner has the tech and not the tag; every check of 'completed' in",
+                  "--     this world (triumphs, legacy cards) reads CA_ONCE_DONE_<project>: completed here or the tag (copies",
+                  "--     CA_ONCE_<requirement set or modifier>)."] + a_lines + [""]
         defs += a_defs
         # Religious units follow religion, a world system (religious_units()). After rule 2c (every unit kept), so that
         # the retain rows of these units can go: the game then removes them at the load into a world that does not
@@ -1595,7 +1669,7 @@ RULE_PROOFS = {
     "2h": "civic and policy continuity (CONTINUITY FAIL); a later-age civic tree shown early (CIVICGATE FAIL)",
     "2i": "rule_2i.js (Ming, Mughal); REPLACE (FAIL); base unit started after the gate (FAIL); kept base unit converted (LEAK FAIL)",
     "2j": "old_resources.js (an Antiquity resource assigned in the Exploration world gives its Antiquity effect)",
-    "2k": "world_projects.js (finals: build report only, all need a building); project_achievements.js",
+    "2k": "project_achievements.js (finals Prep and Break the Sound Barrier blocked in the Exploration world, with placed buildings); world_projects.js",
     "2l": "project_achievements.js (once per game across a world transition; the triumph reads the tag); world_projects.js",
     "2m": "religious_units.js (Antiquity), religion_modern.js (removed at the Modern load, blocked there), religion_lagging.js "
           "(no Breakthrough needed in the Exploration world); RELOADUNITS (rule 2m removals named, others still fail)",
@@ -1655,6 +1729,9 @@ PROBES = {
         ("CA_PROBE_GATE_PERMANENT_RUNONCE_PD", {"permanent": "true", "run-once": "true"}, "UNIT_SETTLER", {"PermanentlyDisabled": "true"},
          "NODE_TECH_CA_EXPLORATION_BREAKTHROUGH"),
     ],
+    # Does a GameModifiers row of the mod attach when a save of an earlier version loads (a TraitModifiers row did not:
+    # update_040.js, 2026-11-07)? An unlock of Spherical Earth in every city, with no requirement.
+    "attach": [],
 }
 
 
@@ -1662,6 +1739,10 @@ def probe_modifiers(name: str) -> tuple[list[ET.Element], list[str], list[str]]:
     """Definitions, SQL (attached to every major civ) and the probed units of probe `name`."""
     g = "{GameEffects}"
     defs, sql, units = [], [], []
+    if name == "attach":
+        m = ET.Element(f"{g}Modifier", {"id": "CA_PROBE_GAME_UNLOCK", "collection": "COLLECTION_ALL_CITIES", "effect": "EFFECT_CITY_UNLOCK_PROJECT"})
+        ET.SubElement(m, f"{g}Argument", {"name": "ProjectType"}).text = "PROJECT_SPHERICAL_EARTH"
+        return [m], ["INSERT INTO GameModifiers (ModifierId) VALUES ('CA_PROBE_GAME_UNLOCK');"], [{"id": "CA_PROBE_GAME_UNLOCK"}]
     for mid, attrs, unit, extra, turn in PROBES[name]:
         m = ET.Element(f"{g}Modifier", {"id": mid, "collection": "COLLECTION_OWNER", "effect": "EFFECT_PLAYER_DISABLE_BUILD_UNIT", **attrs})
         reqs = ET.SubElement(m, f"{g}OwnerRequirements")
@@ -1679,6 +1760,28 @@ def probe_modifiers(name: str) -> tuple[list[ET.Element], list[str], list[str]]:
         sql.append(f"INSERT INTO TraitModifiers (TraitType, ModifierId) VALUES ('TRAIT_LEADER_MAJOR_CIV', '{mid}');")
         units.append({"id": mid, "unit": unit, "fromTurn": turn})
     return defs, sql, units
+
+
+_BASE_REQUIREMENTS: set[str] = set()
+
+
+def check_xrefs(game: Path, defs: list[ET.Element], w: str) -> None:
+    """Every <Requirement xref="..."> in the mod's effects names a requirement of the base game or of the mod itself.
+    The mod's effects load in every game, also without a DLC; a requirement of a DLC is missing then, the gameplay
+    database fails validation and the game crashed at a load (2026-11-07). The simulation does not model requirement
+    rows, so its foreign-key check cannot see this."""
+    if not _BASE_REQUIREMENTS:
+        for f in sorted((game / "Base" / "modules").glob("*/data/**/*.xml")):
+            try:
+                _BASE_REQUIREMENTS.update(el.get("id") for el in ET.parse(f).getroot().iter()
+                                          if c.strip_ns(el.tag) == "Requirement" and el.get("id"))
+            except ET.ParseError:
+                pass
+    own = {el.get("id") for d in defs for el in d.iter() if c.strip_ns(el.tag) == "Requirement" and el.get("id")}
+    bad = sorted({el.get("xref") for d in defs for el in d.iter() if c.strip_ns(el.tag) == "Requirement" and el.get("xref")}
+                 - _BASE_REQUIREMENTS - own)
+    if bad:
+        raise SystemExit(f"world {w}: the mod's effects name requirements that only a DLC defines: {bad}")
 
 
 def fk_set(sim):
@@ -1814,6 +1917,7 @@ def main() -> None:
         for value, text in catchup_sql.items():
             b.catchup_items[value] = f"data/{b.w}/continuous-ages-catchup-{CATCHUP[value]}.sql"
             (OUT / b.catchup_items[value]).write_text(text, encoding="utf-8")
+        check_xrefs(game, defs, b.w)
         write_xml(b.effects_xml(defs), OUT / "data" / b.w / "continuous-ages-effects.xml")
 
     (OUT / "text" / "en_us").mkdir(parents=True, exist_ok=True)
@@ -1964,7 +2068,7 @@ def write_report(builds) -> None:
                    f"{', '.join(p for p, i in b.project_groups.items() if not i['final']) or 'none'}")
         out.append(f"- Religious units of another world age (rule 2m; not trained, bought or kept here): "
                    f"{', '.join(u for u, ages in b.religious_units.items() if b.world not in ages) or 'none'}")
-        out += [f"- Triumph that reads the tags (rule 2l): {legacy} via {sid} -> {copy} ({', '.join(ps)})"
+        out += [f"- Reads done = completed or tag (rule 2l): {sid} -> {copy} ({', '.join(ps)}; used by {', '.join(legacy)})"
                 for sid, copy, ps, legacy in b.legacy_rewrites]
         for e in b.kept_resources:
             src = NAME[b.text_preferred[e["tooltip"]]] if e["tooltip"] in b.text_preferred else "first age that has it, or this world"

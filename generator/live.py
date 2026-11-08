@@ -348,8 +348,9 @@ def host_game(sets: list[str], timeout: float = 300) -> dict:
 
 
 def wait(timeout: float, expr: str = "globalThis.caLive?.ready === true && typeof Game !== 'undefined' && Game.turn >= 1") -> bool:
-    if manual() and expr.startswith("globalThis.caLive?.ready"):
-        expr = "typeof Game !== 'undefined' && Game.turn >= 1"
+    if manual() and expr.startswith("globalThis.caLive?.ready === true && "):
+        # A normal game has no caLive before the injection; keep the rest (a reload phase waits for caAwaitReload).
+        expr = expr.removeprefix("globalThis.caLive?.ready === true && ")
     deadline, last = time.time() + timeout, None
     while time.time() < deadline:
         if WORKER:  # the endpoint must be this worker's game, not another game that got the port first

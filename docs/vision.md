@@ -26,7 +26,8 @@ comes, nothing resets: units, techs, civics, cities, buildings, gold and policie
 
 ## Design goals
 
-1. **Full continuity.** No reset at an age transition. What a civ has built stays.
+1. **Full continuity.** No reset at an age transition. What a civ has built stays. A resource that stays on the
+   map from an earlier age keeps the effects of its last valid age (see [Mechanics](mechanics.md#resources)).
 2. **Each civ has its own age.** A civ's age is set by its own research, not by the world.
 3. **Snowballing is allowed.** A civ that plays well can stay ahead and grow its lead.
 4. **The base game's age transitions stay.** The world still moves through Antiquity, Exploration and
@@ -50,18 +51,18 @@ comes, nothing resets: units, techs, civics, cities, buildings, gold and policie
 | **Breakthrough** | Two new techs in the joined tech tree (the Exploration Breakthrough and the Modern Breakthrough), and two new civics of the same names in the joined civic tree. A tech Breakthrough is the gate to the next age's techs and content; a civic Breakthrough is the gate to the next age's civics and what they unlock. |
 | **Joined trees** | The techs of all three ages form one tech tree, and the main civics form one civic tree. Research is never reset, because the tree is the same in every world age. |
 | **Content** | What a civ researches, builds or uses: techs, civics, units, buildings, improvements, traditions, great people, civ abilities and unique items. Content from all ages is loaded in every world age and locked per civ by its Breakthroughs. |
-| **Systems** | Mechanics that the world sets up: crises, legacy paths and triumphs, treasure fleets, the Distant Lands, independent powers, discoveries, victories, and the governments offered at a world transition. Systems stay with their world age. |
+| **Systems** | Mechanics that the world sets up: crises, legacy paths and triumphs, treasure fleets, the Distant Lands, independent powers, discoveries, victories, religion, and the governments offered at a world transition. Systems stay with their world age. |
 
 The split between content and systems is the core rule of the mod. Content follows the civ. Systems
 follow the world. Systems need setup that the game does only at a world transition (for example the
 Distant Lands for treasure fleets), so they cannot start early for one civ.
 
-Some items look like content but have a use only through a world system. **Such an item follows the system it
-feeds.** Projects that a victory requires are built only in their own world age. Other projects that give victory
-points or a triumph are built at the civ's own age, once per game, and their triumph counts when the world reaches
-that age (see [Mechanics](mechanics.md#world-systems)). A resource that stays on the map from an earlier age keeps
-the effects of its last valid age (see [Mechanics](mechanics.md#resources)). Religious units follow religion: they are
-trained and kept only in the Exploration world, where religions spread (see [Mechanics](mechanics.md#world-systems)).
+Some items look like content but have a use only through a world system. **Their use in that system follows the
+system.** A project that a victory needs, or whose triumph has one winner, is built only in its own world age. Other
+projects that give victory points or a triumph are built once per game, at the civ's own age, and their triumph
+counts when the world reaches that age (see [Mechanics](mechanics.md#world-systems)). Religious units follow
+religion: they are trained and kept only in the Exploration world, where religions spread (see
+[Mechanics](mechanics.md#world-systems)).
 
 ## What the mod does not change
 

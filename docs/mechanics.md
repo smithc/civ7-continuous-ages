@@ -91,7 +91,7 @@ replaces the game's transition script with a copy that has the reset steps remov
 | Item | Base game | Continuous Ages |
 | --- | --- | --- |
 | Techs and civics | Each age has new trees | Kept (one joined tree) |
-| Units | Commanders are kept with their promotions (only commanders have promotions); other military units are remade as the new age's types, and units that the armies do not take back can be lost | Kept as they are: type and position; commanders with their promotions |
+| Units | Commanders are kept with their promotions (only commanders have promotions); other military units are remade as the new age's types, and units that the armies do not take back can be lost | Kept as they are: type and position; commanders with their promotions. Religious units are removed at the Modern load (rule 2m) |
 | Cities | All cities except the capital become towns | Cities stay cities |
 | Gold and influence | Capped | Not capped |
 | Buildings and improvements | Kept; the base game's rules for older-age buildings apply | Kept; the same rules apply |
@@ -102,7 +102,8 @@ replaces the game's transition script with a copy that has the reset steps remov
 
 ### Units
 
-- Every unit is kept as it is.
+- Every unit is kept as it is, except religious units: the game removes them at the load into the Modern world
+  (rule 2m, see [World systems](#world-systems)).
 - The game also creates replacement units for some units ("shadows"). The mod uses a shadow only to
   replace a unit that the game removed (for example a unique unit of the civ's previous civ). The
   replacement keeps the removed unit's class, and it is the best unit of that class that the civ
@@ -119,8 +120,8 @@ No city becomes a town, and gold and influence are not capped.
   test runs), because treasure fleets are a world system of the Exploration age. The test runs check that no
   other resource leaves the map (`RESOURCES` against `RELOADRES`).
 - **A kept resource keeps its effects (rule 2j).** Some kept resources are not valid in the new world age
-  (the base game removes them): Hides, Lapis Lazuli, Salt and Wool in the Exploration world, and 19 in the
-  Modern world. A resource's effects belong to each age's data, so up to version 0.4.0 such a resource gave only
+  (the base game removes them): Hides, Lapis Lazuli, Salt and Wool in the Exploration world, and 18 in the
+  Modern world (build of 2026-11-07). A resource's effects belong to each age's data, so up to version 0.4.0 such a resource gave only
   its base yield, and its text described an effect it did not have (a player report). Now it has the effects
   of its last valid age: Salt in the Exploration world gives +20% Production towards units again, and Dates in the
   Modern world gives its Exploration +3 Food and +3 Happiness. Its text is the text of that age. The generator
@@ -260,9 +261,9 @@ groups, found in the game data (`project_groups` in `build_mod.py`):
 - **Final projects (rule 2k): built only in their own world age, as in the base game.** A project is final when a
   victory requires it, when it grants legacy path points itself or needs a completed legacy path (a legacy path exists
   only in its world age), when it can be repeated, when it has no single tech unlock, or when a triumph of its age in
-  the default triumph set needs it and has one winner (first player only). Today: Launch Rocket and Operation Ivy (the
-  Modern science and military victories), Crewed Space Flight Prep (repeatable) and Break the Sound Barrier (its Modern
-  science triumph has one winner). In other worlds a city cannot start them, and the tech tree does not show them.
+  the default triumph set needs it and has one winner (first player only). Today: Launch Rocket (the Modern science
+  victory), Operation Ivy (the Modern military victory, and its triumph has one winner), Crewed Space Flight Prep
+  (repeatable) and Break the Sound Barrier (its Modern science triumph has one winner). In other worlds a city cannot start them, and the tech tree does not show them.
   Why the one-winner rule: a tag has no date. Built early, every civ with the tag would qualify for the triumph on the
   same turn, at the world start, and the engine, not the first civ to complete the project, would pick the winner. As
   a final project, Break the Sound Barrier is a race in the Modern world, as in the base game.
@@ -270,17 +271,23 @@ groups, found in the game data (`project_groups` in `build_mod.py`):
   Stars, Spherical Earth, Heliocentric Model, Invent Calculus, Trans-Oceanic Flight, Launch Satellite, Crewed Space
   Flight Research. A civ with the tech can build one in any world: a leading civ builds
   Heliocentric Model in the Antiquity world, and a lagging civ builds Chart the Stars in the Exploration world. When the
-  project is complete, the civ gets a hidden narrative tag, and a civ with the tag cannot build the project again. The
-  triumphs of the project's age read the tag instead of "completed in this world": a project built early counts when
-  the world reaches its age. For example, Heliocentric Model built in the Antiquity world and Invent Calculus built in
-  the Exploration world earn the Exploration science triumph. The tag is an ordinary game mechanism (the base game's
-  narrative chains read tags across ages), and no screen shows it.
+  project is complete, the civ gets a hidden narrative tag, and a civ with the tag cannot build the project again.
+  Every check of the world age that a civ "completed" an achievement project reads "done": completed in this world,
+  or the tag (`CA_ONCE_DONE_<project>`). The checks are the triumphs of the project's age and the Exploration science
+  legacy card `CARD_AT_MO_SCIENTIFIC_4`, which pays economic points in the Modern world for each of Trans-Oceanic
+  Flight, Launch Satellite and Crewed Space Flight Research. A project built early counts when the world reaches its
+  age. For example, Heliocentric Model built in the Antiquity world and Invent Calculus built in the Exploration world
+  earn the Exploration science triumph. The tag is an ordinary game mechanism (the base game's narrative chains read
+  tags across ages), and no screen shows it.
 
 Effect on play: a leading civ can collect an achievement's rewards early (victory points, the attribute point, naval
-movement), and its triumph counts when the world reaches that age. Only the Antiquity and Exploration science
-triumphs read tags; no Modern triumph does, so no early project moves a civ along the Modern science legacy path that
-Launch Rocket needs. The build stops if an effect would unlock a gated project, or if a triumph cannot be rewritten
-(a game patch). The Race triumph set, a setup option, is an open check (see [Known limits](known-limits.md#open-checks)).
+movement), and its triumph and card points count when the world reaches that age. No Modern triumph reads a tag. The
+Modern science points of Trans-Oceanic Flight, Launch Satellite and Crewed Space Flight Research are kept from an
+earlier world (the game keeps that score across ages: `StaticCarryover`; not tested in a game). The build finds the
+checks in the game data, not by file name. It stops if an effect would unlock a gated project, or if a check cannot be
+rewritten (a game patch). A check that only a DLC defines is not copied, because the mod's data also loads without
+that DLC: today one Babylon narrative story about Chart the Stars, which keeps "completed in this world". The Race
+triumph set, a setup option, is an open check (see [Known limits](known-limits.md#open-checks)).
 
 **Religious units follow religion (rule 2m).** Religions are founded and spread, with their beliefs, only in the
 Exploration world. The base game's Modern world has no beliefs and no religion screen; religion lives on there only in

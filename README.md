@@ -32,7 +32,8 @@ lead and snowball.
   need that age's Breakthrough tech, and later-age civics need the civic Breakthrough, even after the
   world has moved on.
 - **World systems stay with the world age.** Crises, legacy paths, treasure fleets, the Distant Lands
-  and victories start at the world transition, as in the base game.
+  and victories start at the world transition, as in the base game. Religion too: missionaries are
+  trained only in the Exploration world, with no Breakthrough needed.
 - **Units upgrade across ages.** For example Phalanx to Swordsman, and Pikeman to Line Infantry.
 - **A small banner** shows "Your age · World age".
 

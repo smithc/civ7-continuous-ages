@@ -50,6 +50,29 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   the saved game, which the new rules cannot take back; the next world transition sets the trees
   again (iterations 20261029-184748, 184915, 185138).
 
+### From 0.4.0 to 0.5.0
+
+Tested with a 0.4.0 save that was made for this test (`make_save_040.js` with the v0.4.0 build: Chart the Stars
+completed in the Antiquity world) and loaded with 0.5.0 (`update_040.js`, run 20261107-215829-w1). The save test of
+the release set (five autosaves of a 0.4.0 game, 20 turns each) is in the release regression.
+
+- **Achievement projects wait for the next world transition (rule 2l).** A modifier that a new version adds does not
+  attach when an older save loads (engine fact: rule 2l's unlock, a `TraitModifiers` row, had no effect in the loaded
+  world; a `GameModifiers` probe had none either). The rule's tables do apply at once (`RequiresUnlock`), so in the
+  loaded world no achievement project can be started: Chart the Stars, Spherical Earth, Heliocentric Model, Invent
+  Calculus, Trans-Oceanic Flight, Launch Satellite and Crewed Space Flight Research. At the next world transition the
+  unlock attaches, and the projects and their tags work (same run). In a game updated during the Modern world, the
+  three Modern achievements stay locked for the rest of the game: their rewards are lost (score points, a unit, a map
+  reveal, the economic points of `CARD_AT_MO_SCIENTIFIC_4`). The Modern science victory does not need them: its
+  legacy path points come from the Modern triumphs, and no Modern triumph reads an achievement project.
+- **Completions of 0.4.0 left no tag.** A civ can build each achievement project that it completed under 0.4.0 once
+  more in a later world (same run: Chart the Stars in the Exploration world).
+- **Kept resources of an earlier age get their effects at the next world transition (rule 2j).** Their effects are
+  new `GameModifiers` rows, so the same engine fact applies (inferred, not tested with a resource). Until then they
+  give only their base yield, as in 0.4.0.
+- **Religious units (rule 2m)** are SQL only and apply at once: see [Open checks](#open-checks) for a game saved in
+  the Modern world.
+
 ### From 0.3.0 to 0.4.0
 
 Saves of 0.3.0 load with 0.4.0. Tested with five saves of a 0.3.0 game (iteration 20261101-014304:
@@ -73,7 +96,7 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   but not these screens: in a test the game chooses the human's civ itself, at random (see
   [Testing](testing.md#live-tests)). Please report anything wrong there.
 - Multiplayer.
-- A game that starts in Exploration or Modern.
+- A whole game that starts in Exploration or Modern (some live scenarios use an Exploration start).
 - Map scripts other than Continents and Earth.
 - The **Catch-up Research** option (see [Settings](settings.md#catch-up-research-mod-option)): costs in
   the Modern world and of civ-specific civic trees were not measured.
@@ -84,7 +107,7 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   the Modern world. A 0.4.0 game saved in the Modern world already holds its missionaries: they stay, and they can still
   convert cities, but no new one can be trained or bought. Not tested with a real 0.4.0 save.
 - **The Race triumph set and rule 2l's tags.** In the default triumph set, a project whose triumph has one winner is
-  final (Break the Sound Barrier), so its race happens in its own world, as in the base game. The Race triumph set
+  final (Break the Sound Barrier and Operation Ivy), so its race happens in its own world, as in the base game. The Race triumph set
   (`LEGACY_SET_RACE`, a setup option) gives every triumph one winner, and its `_RACE` triumphs share their requirement
   set with the default triumphs. In such a game, the Antiquity and Exploration science `_RACE` triumphs read the tags:
   all civs that built the projects in an earlier world qualify on the same turn, at the world start, and the engine
@@ -96,8 +119,8 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   0.4.0 runs, so it cannot show it.
 - **Balance of kept military resources in the Modern world (rule 2j).** Kept Iron gives its Exploration effect in
   the Modern world: +1 Combat Strength for infantry for each Iron, up to +6, for every civ that holds Iron (an empire
-  resource: no assignment is needed). Kept Salt gives +20% Production towards units. The base game removes both
-  at the Modern transition. Not measured yet. If it is too strong, rule 2j can leave out or limit combat and unit
+  resource: no assignment is needed). Kept Salt gives +20% Production towards units. The base game removes Iron
+  at the Modern transition and Salt at the Exploration transition. Not measured yet. If it is too strong, rule 2j can leave out or limit combat and unit
   effects.
 - **An AI civ of a later age took a civ of an earlier age at a transition.** In a game with
   Time-Tested civs (iteration 20261031-121009), the AI civ Ming (an Exploration civ played in

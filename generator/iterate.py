@@ -976,7 +976,7 @@ def project_repeats(qfile: Path) -> tuple[list[str], bool]:
         if len(row) < 7 or not row[0].strip().isdigit():
             continue
         turn = int(row[0])
-        if turn < prev - 50:
+        if turn < prev:  # turns drop only at a world start (4 runs checked, 2026-11-07); a short age is also seen
             world += 1
         prev = turn
         item = row[4].strip()
@@ -1361,9 +1361,10 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                         sim = c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True)
                         need_cache["great_people"] |= {t.replace("UNIT_", "", 1) for (t,) in sim.db.execute(
                             "SELECT Type FROM TypeTags WHERE Tag = 'UNIT_CLASS_GREATPERSON'")}
-                        for (t,) in sim.db.execute("SELECT UnitType FROM Units WHERE SpreadCharges > 0 OR UnitType IN "
-                                                   "(SELECT Type FROM TypeTags WHERE Tag = 'UNIT_CLASS_RELIGIOUS')"):
-                            need_cache["religious_native"][t.replace("UNIT_", "", 1)].add(w)
+                        # Not "t": that name holds the transition in this loop.
+                        for (rel_u,) in sim.db.execute("SELECT UnitType FROM Units WHERE SpreadCharges > 0 OR UnitType IN "
+                                                       "(SELECT Type FROM TypeTags WHERE Tag = 'UNIT_CLASS_RELIGIOUS')"):
+                            need_cache["religious_native"][rel_u.replace("UNIT_", "", 1)].add(w)
                 # Rule 2m: a religious unit is removed at the load into a world age that does not define it (religion is a
                 # world system; the base game removes them too). Only then: a religious unit gone at the load into its own
                 # world still fails.
