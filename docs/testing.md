@@ -236,3 +236,10 @@ Gaps to close next, most important first:
    (in `generator/`): `live.py all`, the release suites in [Development](development.md#automated-tests)
    (with `ContinuousAgesDefault.json` on several seeds), and the save compatibility test, on parallel game
    workers ([Parallel games](development.md#parallel-games)).
+   The set does not have the Regroup suite (`ContinuousAgesTransitionOriginal.json`): run it too.
+   Set of 2026-11-07 for the 0.5.0 candidate (git 42b6a00): 15 of 18 items passed, and Regroup passed
+   (20261107-235511-w2). Not passed: `live` (a control of `old_resources.js` under load; the scenario now
+   waits for state, commit 84617d1); Time-Tested 20261107-221556-w6 (a check gap, U-TOT-SHADOW, fixed and
+   re-analyzed; and a leak: a legacy civ's Modern building, an open check); Marathon 20261107-222452-w2 (a
+   Mamluk lost at a civ change, an open check; see [Known limits](known-limits.md#open-checks)). Rule 2m's removals at the Modern load were seen in 10 of 13 whole games, and PROJECT
+   REPEAT passed in all.
