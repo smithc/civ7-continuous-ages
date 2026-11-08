@@ -130,6 +130,12 @@ can name build options (`"build": [...]`); `live.py all` installs that build fir
 build at the end. Each scenario has a control step that must fail without the rule (for example "behind the
 gate: not met"), so a scenario cannot pass by accident.
 
+For one scenario on another build, `python live.py [--worker N] install <build_mod.py options>` installs the
+checks build with those options (for example `--disable-rule oldres` for a negative control). It stops with exit
+code 2 and the build output when the install fails, so join it to the scenario with `&&`. Each scenario's
+REPORT.md has a `- Build:` line with the build that the last install recorded, or a warning when the Mods folder
+changed after it. Reason: on 2026-11-07 a failed install went unseen, and a negative control ran on the fix build.
+
 In the release set 20261101-191259 (6 games at once), `meet_distant.js` failed one setup check (run
 20261101-200105-w1): the game created the ship after the fixed 2-second wait, so the check found no ship.
 The ship was in place for the control step, and the 4 checks of the rule passed. Three other scenarios had

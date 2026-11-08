@@ -20,6 +20,8 @@ Commands (in generator/):
   python live.py quit                            ends the test (QuitApp closes the game)
   python live.py scenario scenarios/x.js [--suite ...] [--set ...]   start, wait, run, quit, report
   python live.py all [--only meet]               every scenario in scenarios/scenarios.json, one game each
+  python live.py install [--disable-rule X ...]  the checks build with these build_mod.py options; exit 2 when it
+                                                 fails (chain the scenario with &&); the scenario report names it
 A scenario file returns {ok: true|false, ...}; its result and the [CA-CHECK][SCENARIO] records go to
 build/scenarios/<time>/REPORT.md with a copy of the logs. Exit code: 0 pass, 1 fail, 2 could not run.
 
@@ -59,6 +61,9 @@ STEAM = r"C:\Program Files (x86)\Steam\steam.exe"
 APP_ID = 1295660
 LOGS = Path.home() / "AppData" / "Local" / "Firaxis Games" / "Sid Meier's Civilization VII" / "Logs"
 STATE = REPO / "build" / "live" / (f"state-w{WORKER}.json" if WORKER else "state.json")
+# The build that the last "live.py install" put into this game's Mods folder (scenario reports name it).
+BUILD_RECORD = REPO / "build" / "live" / (f"build-w{WORKER}.json" if WORKER else "build.json")
+MOD_DIR = LOGS.parent / "Mods" / "continuous-ages"
 TEST_SAVES = ("CA_*.Civ7Save",)  # the named test saves, copied into a worker's own Saves folder
 
 
@@ -492,6 +497,8 @@ def scenario(file: Path, suite: str, sets: list[str], timeout: float, is_manual:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S") + (f"-w{WORKER}" if WORKER else "")
     out = REPO / "build" / "scenarios" / stamp
     out.mkdir(parents=True, exist_ok=True)
+    build = installed_build()  # before the game starts: what this scenario runs on
+    print(f"build: {build}")
     if start(suite, sets, is_manual) != 0:
         return 2
     t0 = time.time()
@@ -517,7 +524,7 @@ def scenario(file: Path, suite: str, sets: list[str], timeout: float, is_manual:
              if "[CA-CHECK][FAIL]" in l or "[CA-CHECK][ERROR]" in l] if (out / "logs" / "UI.log").exists() else []
     passed = passed and not fails
     report = [f"# Scenario {file.name}: {'PASS' if passed else 'FAIL'}", "",
-              f"- Suite: {suite} {' '.join(sets)}", f"- Time: {round((time.time() - t0) / 60, 1)} minutes", "",
+              f"- Suite: {suite} {' '.join(sets)}", f"- Build: {build}", f"- Time: {round((time.time() - t0) / 60, 1)} minutes", "",
               "## Result", "", "```json", json.dumps(result, indent=1)[:20000], "```", "",
               "## [CA-CHECK][SCENARIO] records", ""] + [f"- `{r[:900]}`" for r in records] + \
              ["", "## [CA-CHECK][FAIL] and [ERROR] lines", ""] + ([f"- {l[:900]}" for l in fails] or ["- none"])
@@ -535,7 +542,28 @@ def install(options: list[str]) -> bool:
                          cwd=HERE, capture_output=True, text=True)
     ok = res.returncode == 0 and "Installed to" in res.stdout
     print(f"build {' '.join(options) or '(default)'}: {'installed' if ok else 'FAILED'}")
+    BUILD_RECORD.unlink(missing_ok=True)  # a failed install leaves no record, so no report names a build it lacks
+    if ok:
+        BUILD_RECORD.parent.mkdir(parents=True, exist_ok=True)
+        BUILD_RECORD.write_text(json.dumps({"options": options, "time": time.time()}), encoding="utf-8")
+    else:  # on 2026-11-07 a failed install went unseen, and a negative control ran on the fix build
+        print("\n".join((res.stdout + res.stderr).strip().splitlines()[-15:]))
     return ok
+
+
+def installed_build() -> str:
+    """The build in this game's Mods folder, as the last install recorded it (for the scenario report)."""
+    try:
+        rec = json.loads(BUILD_RECORD.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "not recorded (not installed by live.py install or live.py all)"
+    text = f"build_mod.py --install --checks {' '.join(rec['options'])}".strip()
+    modinfo = MOD_DIR / "continuous-ages.modinfo"
+    if not modinfo.exists():
+        return f"{text}; but {MOD_DIR} has no modinfo now"
+    if modinfo.stat().st_mtime > rec["time"] + 60:
+        return f"{text}; but the Mods folder changed after that install (another build is there)"
+    return text
 
 
 def run_all(listing: Path, only: str | None) -> int:
@@ -586,6 +614,13 @@ def main() -> int:
     p.add_argument("--manual", action="store_true", help="a normal game without automation (the human's own screens)")
     p = sub.add_parser("all"); p.add_argument("--list", type=Path, default=HERE / "scenarios" / "scenarios.json")
     p.add_argument("--only", help="run only the scenarios whose file name contains this text")
+    sub.add_parser("install", help="install a checks build into this game's Mods folder: live.py [--worker N] install "
+                                   "[build_mod.py options, for example --disable-rule oldres]; exit 2 when it fails")
+    argv = sys.argv[1:]
+    if "install" in argv:  # everything after "install" goes to build_mod.py, also options that start with --
+        i = argv.index("install")
+        ap.parse_args(argv[:i + 1])
+        return 0 if install(argv[i + 1:]) else 2
     a = ap.parse_args()
     if a.cmd == "all":
         return run_all(a.list, a.only)

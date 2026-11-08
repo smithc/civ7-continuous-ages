@@ -110,6 +110,7 @@ automation, and writes `build/iterations/<time>/REPORT.md` with the logs and a c
 | Civic tree screen (not an autoplay) | `python ui_test.py --save CA_AQ135` (see [UI test](#ui-test)) | about 2 min |
 | All scenario tests (not an autoplay; needs `build_mod.py --install --checks`) | `python live.py all` (see [Testing](testing.md#scenario-tests)) | about 1 to 2 min each |
 | One scenario, or a live game to drive by hand | `python live.py scenario scenarios/meet_distant.js`, or `live.py start`, `wait`, `eval`, `quit`; `--manual` for a normal game without automation | about 1 min |
+| One scenario on another build (a negative control) | `python live.py --worker 1 install --disable-rule oldres && python live.py --worker 1 scenario scenarios/old_resources.js --set StartAge=AGE_EXPLORATION` (`install` stops with exit 2 when it fails; the report's `- Build:` line names the build) | about 2 min |
 | A probe: test modifiers that answer one engine question | `python build_mod.py --install --checks --probe disable_gate`, then a scenario | about 1 min |
 | Several of these at once | the same `iterate.py` or `live.py` commands, each with its own `--worker N` (see [Parallel games](#parallel-games)) | as the longest |
 | The release set: every suite above, all live scenarios, the save load test | `python regression.py run --workers 6` (`--list` shows the items) | see [Parallel games](#parallel-games) |
