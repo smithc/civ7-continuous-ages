@@ -35,7 +35,7 @@ import classification as cls
 from build_test1 import transition_script, write_xml, EXCLUDE_PATTERNS, TEXT_EXCLUDE
 
 MOD_ID = "continuous-ages"
-MOD_VERSION = "0.4.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
+MOD_VERSION = "0.5.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
 # Plain text in the modinfo, not text keys: the Steam Workshop uploader shows the modinfo's Name and
@@ -63,16 +63,15 @@ RECOMMENDED SETTINGS
 - Start age: Antiquity.
 - AI civ selection at age transition: Mirroring (default), or Current Civilization Persistence.
 
-NEW IN 0.4.0
-- Fix: a civ whose unique unit replaces a Settler, Merchant or Scout of an earlier age trains that unit until its Breakthrough. In 0.3.0 it could train neither (for example, Mughal had no Settlers in Antiquity).
-- Fix: in the Antiquity world, a civ past its Exploration Breakthrough can meet the civs of the Distant Lands.
-- Fix: in the Antiquity world, deep ocean damages the units of a civ past its Exploration Breakthrough until it has Shipbuilding, as in the Exploration world.
-- Fix: at a world transition, AI civs take a government of the new world age.
-- In a game started with 0.2.1, civics can finish one per turn for a while and show "0 turns": the game pays out culture it held back in 0.2.1. It ends by itself.
-- Games saved with 0.3.0 continue with 0.4.0. In such a game, an AI civ with a government of an earlier age keeps it until the next world transition.
+NEW IN 0.5.0
+- Fix: resources of an earlier age that stay on the map keep the effects and text of their last valid age. In 0.4.0 they gave only their base yield.
+- Fix: Chart the Stars, Spherical Earth, Heliocentric Model, Invent Calculus, Trans-Oceanic Flight, Launch Satellite and Crewed Space Flight Research are built once per game, at your own age, in any world. Their triumph counts when the world reaches their age. In 0.4.0 a civ could build them again in each later world.
+- Launch Rocket, Operation Ivy, Crewed Space Flight Prep and Break the Sound Barrier are built only in the Modern world, as in the base game.
+- Religion is a world system: missionaries and the other religious units are trained and bought only in the Exploration world, with no Breakthrough needed. The game removes them at the Modern transition, as in the base game.
+- Games saved with 0.4.0 continue with 0.5.0. In such a game, the projects above can be started after the next world transition, and kept resources get their effects then. In a game updated during the Modern world, Trans-Oceanic Flight, Launch Satellite and Crewed Space Flight Research stay locked.
 
 STATUS
-Playable, in testing. Full AI games pass all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.
+Playable, in testing. Full AI games play through all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.
 
 COMPATIBILITY
 - Version {mod_version}, built for Civilization VII {game_version}, with the base game and DLC civilizations.
