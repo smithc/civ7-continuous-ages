@@ -45,6 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import gamepool
+import oldversion
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -368,6 +369,8 @@ def play_previous(prev: str, worker: int) -> int:
     if r.returncode:
         print(f"COULD NOT RUN: git worktree add: {r.stderr.strip()[:300]}")
         return 2
+    for line in oldversion.patch_worktree(wt):  # anchors of a newer game version (oldversion.py)
+        print(f"patched {prev} for this game version: {line}", flush=True)
     done = threading.Event()
     own_auto = gamepool.saves(worker) / "auto"
     t0 = time.time()

@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import civ7data as c  # noqa: E402
+import oldversion  # noqa: E402
 
 HERE = Path(__file__).resolve().parent.parent
 REPO = HERE.parent
@@ -39,6 +40,8 @@ def tables(mod_dir: Path, age: str) -> dict:
 
 def build_ref(ref: str, where: Path) -> Path:
     subprocess.run(["git", "-C", str(REPO), "worktree", "add", "-q", "--detach", str(where), ref], check=True)
+    for line in oldversion.patch_worktree(where):  # anchors of a newer game version (oldversion.py)
+        print(f"patched {ref} for this game version: {line}")
     subprocess.run([sys.executable, "build_mod.py"], cwd=where / "generator", check=True, stdout=subprocess.DEVNULL)
     return where / "build" / "continuous-ages"
 
