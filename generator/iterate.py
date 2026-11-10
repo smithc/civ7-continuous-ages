@@ -1084,9 +1084,14 @@ def project_repeats(qfile: Path) -> tuple[list[str], bool]:
     """PROJECT REPEAT: a civ completes a once-per-player project more than once in the game (the game forgets project
     completions at a world transition; player report of 2026-11-01: Chart the Stars and Spherical Earth again in each
     later world). A completion is a CityBuildQueue row whose production reaches the cost. A turn number that drops starts
-    a new world age. Rules 2k and 2l must keep the count at one."""
+    a new world age. Rules 2k and 2l must keep the count at one.
+    One build can have more than one row at or over its cost: production equal to the cost stays in the queue, and the
+    project completes on the next turn with an overflow (20261110-141509-w2: Carthage, 450 of 450 at turn 74, 547 of 450
+    at turn 75, a Bank at turn 76). Rows of the same city and project on consecutive turns, with production that does not
+    drop, are one completion."""
     once = once_per_player_projects()
     done = defaultdict(list)  # (player, project) -> [(world index, turn)]
+    last = {}  # (player, city, project) -> (world, turn, production) of the last row at or over the cost
     world, prev = 0, 0
     for row in csv.reader(qfile.open(encoding="utf-8", errors="replace")):
         if len(row) < 7 or not row[0].strip().isdigit():
@@ -1097,10 +1102,16 @@ def project_repeats(qfile: Path) -> tuple[list[str], bool]:
         prev = turn
         item = row[4].strip()
         try:
-            complete = float(row[5]) >= float(row[6]) > 0
+            produced = float(row[5])
+            complete = produced >= float(row[6]) > 0
         except ValueError:
             continue
-        if item in once and complete and (world, turn) not in done[(row[1].strip(), item)]:
+        if item not in once or not complete:
+            continue
+        key = (row[1].strip(), row[2].strip(), item)
+        same_build = key in last and last[key][0] == world and last[key][1] + 1 == turn and produced >= last[key][2]
+        last[key] = (world, turn, produced)
+        if not same_build and (world, turn) not in done[(row[1].strip(), item)]:
             done[(row[1].strip(), item)].append((world, turn))
     repeats = {k: v for k, v in done.items() if len(v) > 1}
     lines = ["## Once-per-player projects completed more than once (PROJECT REPEAT)", ""]

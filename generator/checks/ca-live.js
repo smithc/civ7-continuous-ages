@@ -62,19 +62,78 @@
     // Ends slot 0's turn without the AI (it works with open turn blockers). Right after autoplay the game can ignore
     // the request (live test: the turn stayed the same), so it is sent again while the turn has not ended. Resolves
     // at the next turn, or when the age ends (then no new turn begins).
+    // Game 1.5.1: the request waits for three end-turn blockers (on 1.5.0 it did not; live probe 2026-11-10,
+    // ocean_damage.js with revealAllPlots): new population, a first meeting and a narrative choice. After the first
+    // request, endTurn answers them as a player does (resolveBlockers) and logs each answer.
     async endTurn(timeoutMs = 120000) {
       const turn = Game.turn;
       const t0 = Date.now();
       let lastSend = 0;
+      let sends = 0;
       while (Date.now() - t0 < timeoutMs) {
         if (Game.turn > turn || caLive.ageEnded) return Game.turn;
         if (Players.get(localId())?.isTurnActive && Date.now() - lastSend > 4000) {
+          if (sends++ > 0) caLive.resolveBlockers();
           GameContext.sendTurnComplete();
           lastSend = Date.now();
         }
         await sleep(500);
       }
-      throw new Error(`endTurn: turn ${turn} did not end in ${timeoutMs / 1000} s`);
+      throw new Error(`endTurn: turn ${turn} did not end in ${timeoutMs / 1000} s (end-turn blocker ${caLive.blockerName()})`);
+    },
+    blockerName() {
+      const n = Game.Notifications;
+      const b = n.findEndTurnBlocking(localId(), n.getEndTurnBlockingType(localId()));
+      const x = b ? n.find(b) : null;
+      return x ? n.getTypeName(x.Type) : "none";
+    },
+    // Answers the end-turn blocker of slot 0, if it is one of these: new population (the first plot that the city may
+    // take), a first meeting (the neutral greeting), a narrative choice (the first link that may start). Returns what
+    // it did, or null.
+    resolveBlockers() {
+      const me = localId();
+      const n = Game.Notifications;
+      const bt = n.getEndTurnBlockingType(me);
+      if (bt == EndTurnBlockingTypes.NONE) return null;
+      const b = n.findEndTurnBlocking(me, bt);
+      const x = b ? n.find(b) : null;
+      const type = x ? n.getTypeName(x.Type) : null;
+      let did = null;
+      try {
+        if (bt == EndTurnBlockingTypes.NEW_POPULATION) {
+          for (const id of Players.get(me).Cities.getCityIds()) {
+            const r = Game.CityCommands.canStart(id, CityCommandTypes.EXPAND, {}, false);
+            if (r?.Success && r.Plots?.length) {
+              const loc = GameplayMap.getLocationFromIndex(r.Plots[0]);
+              Game.CityCommands.sendRequest(id, CityCommandTypes.EXPAND, { X: loc.x, Y: loc.y });
+              did = `expand ${loc.x},${loc.y}`;
+            }
+          }
+        } else if (type === "NOTIFICATION_PLAYER_MET") {
+          const args = { Player1: me, Player2: x.Player, Type: DiplomacyPlayerFirstMeets.PLAYER_REALATIONSHIP_FIRSTMEET_NEUTRAL };
+          if (Game.PlayerOperations.canStart(me, PlayerOperationTypes.RESPOND_DIPLOMATIC_FIRST_MEET, args, false)?.Success) {
+            Game.PlayerOperations.sendRequest(me, PlayerOperationTypes.RESPOND_DIPLOMATIC_FIRST_MEET, args);
+            did = `first meet ${x.Player}`;
+          }
+        } else {
+          const st = Players.get(me).Stories;
+          const id = st?.getFirstPendingDiscoveryLastMetID() ?? st?.getFirstPendingMetId();
+          const story = id ? st.find(id) : null;
+          const def = story ? GameInfo.NarrativeStories.lookup(story.type) : null;
+          for (const l of Array.from(GameInfo.NarrativeStory_Links).filter((k) => def && k.FromNarrativeStoryType == def.NarrativeStoryType)) {
+            const args = { TargetType: l.ToNarrativeStoryType, Target: id, Action: PlayerOperationParameters.Activate };
+            if (Game.PlayerOperations.canStart(me, PlayerOperationTypes.CHOOSE_NARRATIVE_STORY_DIRECTION, args, false)?.Success) {
+              Game.PlayerOperations.sendRequest(me, PlayerOperationTypes.CHOOSE_NARRATIVE_STORY_DIRECTION, args);
+              did = `story ${l.ToNarrativeStoryType}`;
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        did = `error ${e}`;
+      }
+      log({ endTurnBlocker: type, turn: Game.turn, did });
+      return did;
     },
     // The age's end as a human reaches it, in a build with short ages (build_mod.py --age-points N): the AI plays
     // slot 0 until the age is 3 points from its end, then slot 0 ends its own turns until the age ends. Autoplay

@@ -38,14 +38,28 @@ const op = (a) => {
 const on = (p) => ({ Location: p, City: tid.id, Flags: false, ID: -1 });
 const off = (p) => ({ Location: p, City: tid.id, ID: -1, Action: PlayerOperationParameters.Deactivate });
 // setResource does not replace a resource: clear the plot first.
-async function put(p, type) {
+// Game 1.5.1: clearing the plot takes its resource out of the player's pool (Resources.getResources()), and setResource
+// does not put the new one in, so ASSIGN_RESOURCE does nothing (live probe 2026-11-10, worker 4). The pool takes it when
+// the plot's improvement is built again (DESTROY_ELEMENT, then CREATE_ELEMENT of the same improvement); the game may
+// then assign it to the city by itself.
+const inPool = (p) => Players.get(me).Resources.getResources().some((x) => x.value === GameplayMap.getIndexFromLocation(p));
+async function put(p, type, imp) {
   WorldBuilder.MapPlots.setResource(ResourceTypes.NO_RESOURCE, p, 0);
   await settle(1500);
   WorldBuilder.MapPlots.setResource(GameInfo.Resources.lookup(type).$index, p, 1);
   await until(() => typeAt(GameplayMap.getIndexFromLocation(p)) === type);
+  for (const id of MapConstructibles.getConstructibles(p.x, p.y) ?? []) {
+    if (GameInfo.Constructibles.lookup(Constructibles.getByComponentID(id)?.type)?.ConstructibleType === imp)
+      Game.PlayerOperations.sendRequest(me, "DESTROY_ELEMENT", { Kind: "CONSTRUCTIBLE", Owner: id.owner, LocalID: id.id });
+  }
+  await until(() => !cons(p).includes(imp));
+  Game.PlayerOperations.sendRequest(me, "CREATE_ELEMENT", { Kind: "CONSTRUCTIBLE", Type: imp, Location: p, Owner: me });
+  await until(() => cons(p).includes(imp) && inPool(p));
   await settle(1500);
-  return typeAt(GameplayMap.getIndexFromLocation(p));
+  return { onPlot: typeAt(GameplayMap.getIndexFromLocation(p)), imp: cons(p).includes(imp), pool: inPool(p) };
 }
+// Assigns the resource on p unless the game already did (after put), and says if it is assigned.
+const assign = (p, type) => assigned().includes(type) || op(on(p));
 // Kept resources of this world: valid in an earlier age, not in this one.
 const AGES = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"];
 const earlier = new Set(AGES.slice(0, AGES.indexOf(age)));
@@ -75,23 +89,32 @@ const r1 = op(off(p));
 await until(() => !assigned().includes(r) && Object.keys(diff(yields(), y)).length > 0);
 const lossR = diff(yields(), y);
 expect(`control: unassigning ${r} changes the capital's yields`, r1 && Object.keys(lossR).length > 0, { lossR, assigned: assigned() });
-// Test: K on R's plot, assigned.
-const onPlot = await put(p, k);
+// Test: K on R's plot, assigned. The yields are read before put: the game can assign K when the Camp is built again.
 y = yields();
-const kAssign = op(on(p));
+const kPut = await put(p, k, pick.imp);
+const onPlot = kPut.onPlot;
+const kAssign = assign(p, k);
 // Without the rule the yields do not change: then this waits its full time, and the test fails as it should.
 await until(() => assigned().includes(k) && Object.keys(diff(yields(), y)).length > 0);
 const gainK = diff(yields(), y);
-expect(`${k} is on the ${pick.imp} plot and can be assigned`, onPlot === k && kAssign && assigned().includes(k), { onPlot, kAssign, assigned: assigned() });
-expect(`test: assigned ${k} (not valid in ${age}) gives its last valid age's effect`, gain(gainK), { gainK });
-// Control, step 2: R back on the plot and assigned again.
-op(off(p));
-await until(() => !assigned().includes(k));
+expect(`${k} is on the ${pick.imp} plot and can be assigned`, onPlot === k && kAssign && assigned().includes(k), { ...kPut, kAssign, assigned: assigned() });
+// The gain since put also has the rebuilt improvement's own change (2026-11-10: +4 Production with the rule, +1 without;
+// 20261110-152214-w4, 152409-w4). So the test measures the assignment alone: K unassigned again loses K's effect
+// (Hides: -3 Production). Without the rule nothing goes, this waits its full time, and the test fails.
 await settle(1500);
-const back = await put(p, r);
+const y1 = yields();
+op(off(p));
+await until(() => !assigned().includes(k) && Object.keys(diff(yields(), y1)).length > 0);
+const lossK = diff(yields(), y1);
+expect(`test: assigned ${k} (not valid in ${age}) gives its last valid age's effect (lost when unassigned)`,
+  Object.values(lossK).some((v) => v < 0), { lossK, gainK, assigned: assigned() });
+// Control, step 2: R back on the plot and assigned again.
+await settle(1500);
 y = yields();
-const rAssign = op(on(p));
+const rPut = await put(p, r, pick.imp);
+const back = rPut.onPlot;
+const rAssign = assign(p, r);
 await until(() => assigned().includes(r) && Object.keys(diff(yields(), y)).length > 0);
 const gainR = diff(yields(), y);
-expect(`control: ${r} put back and assigned again gives its effect back`, back === r && rAssign && gain(gainR), { back, rAssign, gainR, assigned: assigned() });
+expect(`control: ${r} put back and assigned again gives its effect back`, back === r && rAssign && gain(gainR), { ...rPut, rAssign, gainR, assigned: assigned() });
 return { ok: checks.every((c) => c.ok), failed: checks.filter((c) => !c.ok), checks, pick };

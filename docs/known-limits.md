@@ -150,6 +150,14 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   and the game left no shadow for it, so the mod's shadow step made no replacement (`LOST UNITS FAIL`, one
   cavalry). In earlier runs Mamluks were converted to Coursers one for one. Cause not known (perhaps a unit in an
   army); the transition script did not change since 0.4.0.
+  A second case on game 1.5.1 (0.5.1 regression, run 20261110-141728-w6, seed 2002): Mongolia changed to Qajar at
+  the Modern load (civ age Modern). Its one Keshig was removed with no replacement (`LOST UNITS FAIL`, one cavalry).
+  At the same load the game converted its 4 Cuirassiers to Qajar's Ghilman. Both cases are a change to Qajar, and
+  both `SHADOWS` records have `made` 0, no `unmatched` shadow and `otherTag` 1. So the game did leave a shadow, and
+  a kept unit took it. A likely cause (not proven): `caDoubleShadowTypes` counts two shadows for each unit of a
+  unique type of the new civ, but a Ghilman that was a Cuirassier before the load left only one shadow. The 4
+  Ghilman then take 8 cavalry shadows (`keptBy` cavalry 10 = 4 x 2 + Knight + Lancer), the Keshig's shadow among
+  them. Next: a scenario with a civ that changes to Qajar while it holds Cuirassiers and a unique unit of its old civ.
 - **Religious units in a game saved in the Modern world (rule 2m).** The game removes religious units at the load into
   the Modern world. A 0.4.0 game saved in the Modern world already holds its missionaries: they stay, and they can still
   convert cities, but no new one can be trained or bought. Not tested with a real 0.4.0 save.
