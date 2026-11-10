@@ -35,7 +35,7 @@ import classification as cls
 from build_test1 import transition_script, write_xml, EXCLUDE_PATTERNS, TEXT_EXCLUDE
 
 MOD_ID = "continuous-ages"
-MOD_VERSION = "0.5.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
+MOD_VERSION = "0.5.1"  # the release version (docs/releasing.md); the zip name and build-info.json use it
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
 # Plain text in the modinfo, not text keys: the Steam Workshop uploader shows the modinfo's Name and
@@ -63,12 +63,12 @@ RECOMMENDED SETTINGS
 - Start age: Antiquity.
 - AI civ selection at age transition: Mirroring (default), or Current Civilization Persistence.
 
-NEW IN 0.5.0
-- Fix: resources of an earlier age that stay on the map keep the effects and text of their last valid age. In 0.4.0 they gave only their base yield.
-- Fix: Chart the Stars, Spherical Earth, Heliocentric Model, Invent Calculus, Trans-Oceanic Flight, Launch Satellite and Crewed Space Flight Research are built once per game, at your own age, in any world. Their triumph counts when the world reaches their age. In 0.4.0 a civ could build them again in each later world.
-- Launch Rocket, Operation Ivy, Crewed Space Flight Prep and Break the Sound Barrier are built only in the Modern world, as in the base game.
-- Religion is a world system: missionaries and the other religious units are trained and bought only in the Exploration world, with no Breakthrough needed. The game removes them at the Modern transition, as in the base game.
-- Games saved with 0.4.0 continue with 0.5.0. In such a game, the projects above can be started after the next world transition, and kept resources get their effects then. In a game updated during the Modern world, Trans-Oceanic Flight, Launch Satellite and Crewed Space Flight Research stay locked.
+NEW IN 0.5.1
+- Built for game update 1.5.1. The rules of 0.5.0 are unchanged.
+- After a game update, the game turns off every mod once. Turn Continuous Ages on again in Add-ons before you load a game.
+- The great people that game update 1.5.1 moved into civ abilities (Alim, Conquistador, Saga Hero, Jacobin, Revolucionario, Uparat) wait for the civ's Breakthrough of their age, as its other civ abilities do. In a game saved before the update, they come after the next world transition.
+- Known limit: a town that can buy buildings of a type (a town focus, Augustus, some civ abilities) can also buy later-age buildings of that type before your Breakthrough. The base game allows this within one age.
+- Games saved with 0.5.0 continue with 0.5.1.
 
 STATUS
 Playable, in testing. Full AI games play through all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.

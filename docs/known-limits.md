@@ -51,6 +51,24 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   the saved game, which the new rules cannot take back; the next world transition sets the trees
   again (iterations 20261029-184748, 184915, 185138).
 
+### From 0.5.0 to 0.5.1
+
+0.5.1 is 0.5.0 built for game update 1.5.1 (no rule change). The save database check against v0.5.0 found the same
+tables in all three worlds (`tools/savecompat.py v0.5.0`, 2026-11-10, both builds on 1.5.1). The save test of the release
+set plays v0.5.0 on 1.5.1 (built with `oldversion.py`) and loads its autosaves with 0.5.1.
+
+- **The game update turns off every mod once.** At its first start on a new version the game disables every mod
+  (`AppOptions.txt`, `[Modding] DisableModsOnStartupVersion`) and shows "Mod settings reset". A Continuous Ages save
+  needs the mod: turn it on again in Add-ons before you load the game.
+- **The great people that 1.5.1 moved into civ abilities wait for the next world transition.** Game update 1.5.1 grants
+  the Alim, Conquistador, Saga Hero, Jacobin, Revolucionario and Uparat through new civ-ability modifiers
+  (`TRAIT_MOD_GRANT_*`), and rule 5e gates them (`CA_GATE_TRAIT_MOD_GRANT_*`). A modifier that a new version adds does
+  not attach when an older save loads (see the section below), so in a game continued from 1.5.0 these civs get none of
+  these units until the next world transition. The base game has the same issue for its own new modifiers.
+- **Games of the published 0.5.0 on game 1.5.1** (offline check only): its database loads on 1.5.1 with no issues, and
+  its copy of the 1.5.0 transition script still finds all its imports. It keeps the 1.5.0 transition (the 1.5.1 loop over
+  city-states is not in it) and the 1.5.0 version of the content that it copies into other worlds.
+
 ### From 0.4.0 to 0.5.0
 
 Tested with a 0.4.0 save that was made for this test (`make_save_040.js` with the v0.4.0 build: Chart the Stars

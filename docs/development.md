@@ -38,6 +38,7 @@ your game is somewhere else.
 | `generator/checks/` | In-game check scripts and the autoplay test (built in only with `--checks`). |
 | `generator/iterate.py` | Build, install, autoplay and analysis in one step. `--worker N` runs it as a parallel game worker (see [Parallel games](#parallel-games)). |
 | `generator/gamepool.py` | Parallel game workers: one folder per worker (`build/workers/w<N>/`) with its own user folders, the worker's environment, the game started from its executable, the worker's game process, and the check and setup of the Documents setting that parallel games need (`check`, `setup-documents`, `restore-documents`). It knows the game, not the mod. |
+| `generator/oldversion.py` | Builds the previous release on a newer game version: it applies the anchor changes of a game patch (`GAME_PATCHES`) to the release's git worktree, for `saves:play` and `tools/savecompat.py`. |
 | `generator/regression.py` | The release regression set (every suite, the live scenarios, the save load test) on N workers at once: `--list`, `run`, `status`, `rerun`, `stop`. Results in `build/regression/<stamp>.txt`. |
 | `generator/live.py` | Live tests: starts a game for a script, runs JavaScript in the game through the UI debugger (port 9444), runs scenario files and writes `build/scenarios/<time>/REPORT.md` (see [Testing](testing.md#live-tests)). Before a launch it closes a crash reporter left by an earlier game (Steam counts it as the game and starts no other); it keeps the id of each game process it starts, and closes that game also after a crash. `live.py --worker N <command>` runs in a parallel game worker; only one live game at a time (port 9444). |
 | `generator/scenarios/` | Scenario tests for `live.py` (`scenarios.json` lists them) and probe scenarios. |
@@ -356,5 +357,13 @@ the repo:
 1. Run `python build_mod.py` and read the "unclassified tables" line of each world. Classify each new
    table in `classification.py` as content or system.
 2. If the build stops on a transition script edit, the game changed its transition script: update
-   the edit in `build_test1.py`.
-3. Run the three-age test.
+   the edit in `build_test1.py`. Diff the game's old and new script to see what else changed: rebuild the old
+   script from the last release's copy (`scripts/age-transition-post-load.js` in its zip) by undoing
+   `TRANSITION_EDITS` in reverse order. Then add the same anchor change to `GAME_PATCHES` in `oldversion.py`, so that
+   the save tests can still build the previous release (`saves:play`, `tools/savecompat.py`).
+3. A game update turns off every mod once per user profile (`AppOptions.txt`, `[Modding]
+   DisableModsOnStartupVersion`), and a test game then waits at the main menu. `gamepool.prepare()` enables each
+   worker's own mods again and copies the highest version to every worker. A run without `--worker` uses your own
+   profile: start the game once and turn the mod on in Add-ons.
+4. Compare the new build with the last release (the files of its zip) and read the changes, then run the three-age
+   test and the release set.
