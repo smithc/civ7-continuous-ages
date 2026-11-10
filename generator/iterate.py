@@ -216,6 +216,50 @@ def item_names() -> dict:
     return out
 
 
+def town_purchase_tags() -> set:
+    """The tags that a town's tagged purchase names (EFFECT_ADJUST_TOWN_CAN_PURCHASE_TAGGED_CONSTRUCTIBLES: town focuses
+    of each age, Augustus, DLC civ abilities), from the game's GameEffects files."""
+    tags = set()
+    for root in (c.DEFAULT_GAME_DIR / "Base" / "modules", c.DEFAULT_GAME_DIR / "DLC"):
+        for f in root.rglob("*.xml"):
+            if any(part in ("l10n", "text") for part in f.parts):
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
+            if "EFFECT_ADJUST_TOWN_CAN_PURCHASE_TAGGED_CONSTRUCTIBLES" not in text:
+                continue
+            for m in re.finditer(r"<Modifier\b[^>]*EFFECT_ADJUST_TOWN_CAN_PURCHASE_TAGGED_CONSTRUCTIBLES[^>]*>(.*?)</Modifier>", text, re.S):
+                tags.update(re.findall(r'name="ConstructibleTag"[^>]*>\s*([A-Z0-9_]+)\s*<', m.group(1)))
+    return tags
+
+
+def constructible_tags() -> dict:
+    """Constructible type -> its TypeTags, from the base game and DLC of each world age."""
+    out = defaultdict(set)
+    for w in ("AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"):
+        sim = c.simulate(c.DEFAULT_GAME_DIR, w, include_dlc=True)
+        for typ, tag in sim.db.execute("SELECT t.Type, t.Tag FROM TypeTags t JOIN Constructibles k ON k.ConstructibleType = t.Type"):
+            out[typ].add(tag)
+    return out
+
+
+def town_purchase_known(bought: list, qfile: Path) -> tuple[list, list]:
+    """Splits purchase leaks into (known, other). Known limit U-TOWN-PURCHASE (docs/known-limits.md): the base game's
+    tagged town purchase skips the building's own unlock (live tests of 2026-11-10: in the base game too, within one
+    age), and the mod loads later-age buildings in every world. Exact case: the settlement had no production row at
+    that turn (a town: towns do not produce) and the building has a tag that a town's tagged purchase names."""
+    producing = set()
+    for row in csv.reader(qfile.open(encoding="utf-8", errors="replace")):
+        if len(row) > 2 and row[0].strip().isdigit():
+            producing.add((int(row[0]), int(row[1]), row[2].strip()))
+    tags, item_tags = town_purchase_tags(), constructible_tags()
+    known, other = [], []
+    for b in bought:
+        w, t, p, city, item, ca = b
+        shared = sorted(item_tags.get(item, set()) & tags)
+        (known if shared and (t, p, city) not in producing else other).append((*b, shared))
+    return known, [o[:6] for o in other]
+
+
 def production_leaks(qfile: Path, players: list, item_col: int = 4, names: dict | None = None) -> list[tuple]:
     """Items that a civ started (or, with the purchase log, bought) before it reached the civ age
     that the item's unlocks need (the unlocks are OR: the earliest one counts). players: PLAYER
@@ -1765,11 +1809,14 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
         pfile = LOGS / "CityPurchase.csv"
         if pfile.exists():
             bought = production_leaks(pfile, players, item_col=3, names=item_names())
+            town_known, bought = town_purchase_known(bought, qfile) if bought else ([], [])
             lines += ["## Later-age items bought before the civ's gate (leaks)", ""]
             lines += [f"- {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in bought[:25]]
+            lines += [f"- KNOWN LIMIT (U-TOWN-PURCHASE): {w}, turn {t}, player {p} ({city}, a town; tag {', '.join(tg)}): {item} "
+                      f"with civ age {ca}" for w, t, p, city, item, ca, tg in town_known[:25]]
             if bought:
                 failed = True
-            else:
+            elif not town_known:
                 lines.append("- none")
             lines.append("")
         replace_lines, replace_failed = replace_starts(qfile, players)
