@@ -242,28 +242,48 @@ def constructible_tags() -> dict:
     return out
 
 
-def town_purchase_known(bought: list, qfile: Path) -> tuple[list, list]:
-    """Splits purchase leaks into (known, other). Known limit U-TOWN-PURCHASE (docs/known-limits.md): the base game's
-    tagged town purchase skips the building's own unlock (live tests of 2026-11-10: in the base game too, within one
-    age), and the mod loads later-age buildings in every world. Exact case: the settlement had no production row at
-    that turn (a town: towns do not produce) and the building has a tag that a town's tagged purchase names."""
-    producing = set()
+def log_worlds(qfile: Path, base: int):
+    """(world, turn, player, settlement) of each row of a game CSV log whose turn restarts in each world (the same
+    split as production_leaks: a turn lower than the one before starts the next world; base = the first world)."""
+    worlds = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
+    seg, last = 0, 0
     for row in csv.reader(qfile.open(encoding="utf-8", errors="replace")):
-        if len(row) > 2 and row[0].strip().isdigit():
-            producing.add((int(row[0]), int(row[1]), row[2].strip()))
+        if len(row) <= 2 or not row[0].strip().isdigit():
+            continue
+        turn = int(row[0])
+        if turn < last:
+            seg += 1
+        last = turn
+        yield worlds[min(base + seg, 2)], turn, int(row[1]), row[2].strip()
+
+
+def town_purchase_known(bought: list, qfile: Path, base: int) -> tuple[list, list]:
+    """Splits purchase leaks into (known, other). Known limit U-TOWN-PURCHASE (docs/known-limits.md): the base game's
+    tagged town purchase skips the building's own unlock (scenario town_purchase.js: in the base game too, within one
+    age), and the mod loads later-age buildings in every world. Exact case: a town and a tag. A town never produces,
+    so the settlement has no production row in that world up to the turn after the purchase (a city has rows before,
+    or from the turn after its founding; review of 2026-11-10: turn 1 of a world has no rows, and a city can miss a
+    turn). Turn 1 never counts. The building has a tag that a town's tagged purchase names."""
+    first_row = {}
+    for world, turn, pid, city in log_worlds(qfile, base):
+        key = (world, pid, city)
+        first_row[key] = min(first_row.get(key, turn), turn)
     tags, item_tags = town_purchase_tags(), constructible_tags()
     known, other = [], []
     for b in bought:
         w, t, p, city, item, ca = b
         shared = sorted(item_tags.get(item, set()) & tags)
-        (known if shared and (t, p, city) not in producing else other).append((*b, shared))
+        town = t > 1 and first_row.get((w, p, city), 10 ** 6) > t + 1
+        (known if shared and town else other).append((*b, shared))
     return known, [o[:6] for o in other]
 
 
-def production_leaks(qfile: Path, players: list, item_col: int = 4, names: dict | None = None) -> list[tuple]:
+def production_leaks(qfile: Path, players: list, item_col: int = 4, names: dict | None = None,
+                     unjudged: list | None = None) -> list[tuple]:
     """Items that a civ started (or, with the purchase log, bought) before it reached the civ age
     that the item's unlocks need (the unlocks are OR: the earliest one counts). players: PLAYER
-    check records. item_col and names: the purchase log has the item's text key in column 3."""
+    check records. item_col and names: the purchase log has the item's text key in column 3.
+    unjudged: if given, gets the gated items with no check at or after their turn (a run that ends inside a world)."""
     worlds = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
     need = {w: required_ages(w) for w in worlds}
     timeline = {}
@@ -295,6 +315,8 @@ def production_leaks(qfile: Path, players: list, item_col: int = 4, names: dict 
         # age proves a leak.
         later = [ages for t, ages in sorted(timeline.get((world, pid), []), key=lambda x: x[0]) if t >= turn]
         civ_age, civic_age = later[0] if later else (None, None)
+        if not later and unjudged is not None:
+            unjudged.append((world, turn, pid, row[2].strip(), item))
         if too_early(required, civ_age, civic_age):
             leaks.append((world, turn, pid, row[2].strip(), item, civ_age if civic_age is None else f"{civ_age}/civic {civic_age}"))
     return leaks
@@ -735,8 +757,16 @@ def minor_players_report(minors: list, reload_minors: list) -> list[str]:
     nodes = lambda r: "-" if r is None else ("n/a" if r["nodes"].get("unavailable") else
                                              "{AQ}/{EX}/{MO} g{gateEX}{gateMO}".format(**r["nodes"]))
     ident = lambda r: (r.get("civ"), r.get("leader"), tuple(r.get("cities") or []))
-    lines += ["Nodes: AQ/EX/MO techs of the joined tree, g = Exploration and Modern Breakthrough done. Units: count.", "",
-              "| New world | Slot | Kind (end / reload) | Civ (end / reload) | Same player | Cities end / before / after "
+    lines += ["Nodes: AQ/EX/MO techs of the joined tree, g = Exploration and Modern Breakthrough done. Units: count. "
+              "'Reload' is the RELOADMINOR record (city-states only: the game's loop skips independents), else the first "
+              "turn of the new world. 'Same player' compares civ, leader and city names: 'unknown' for independents (all "
+              "have the same names); compare their nodes and units instead.", ""]
+    capped = sorted({(r.get("age"), r.get("turn"), r.get("when", "turn")) for r in minors
+                     if sum(1 for x in minors if (x.get("age"), x.get("turn"), x.get("when", "turn")) == (r.get("age"), r.get("turn"), r.get("when", "turn"))) >= 16})
+    if capped:
+        lines += [f"- the MINORS record holds 16 minor players at most: {len(capped)} records reached the cap "
+                  f"(first: {capped[0]}); minors beyond it are not in this table", ""]
+    lines += ["| New world | Slot | Kind (end / reload) | Civ (end / reload) | Same player | Cities end / before / after "
               "| Nodes end / before / after / first turn | Units end / before / after / first turn | Shadows (before; kept, made, ownAge, lost) |",
               "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for new in order[1:]:
@@ -750,7 +780,9 @@ def minor_players_report(minors: list, reload_minors: list) -> list[str]:
         for pid in sorted(set(end) | set(before) | set(after) | set(first)):
             e, b, a, f = end.get(pid), before.get(pid), after.get(pid), first.get(pid)
             r = b or a or f
-            same = "-" if e is None or r is None else ("yes" if ident(e) == ident(r) else "no")
+            independent = any(x and x.get("kind") == "independent" for x in (e, r))
+            same = ("-" if e is None or r is None else "unknown" if independent and ident(e) == ident(r)
+                    else "yes" if ident(e) == ident(r) else "no")
             sh = a.get("shadows") if a else None
             sh_text = "-" if a is None and b is None else (f"{b.get('nShadows') if b else '-'}; " + (
                 ", ".join(str((sh or {}).get(k, 0)) for k in ("kept", "made", "ownAge", "lost")) if sh else "none"))
@@ -1797,27 +1829,40 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                     first.setdefault(item, int(row[0]))
     if qfile.exists():
         lines += ["## Production by world age and native age", ""] + production_by_world(qfile, ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"].index(players[0]["age"]) if players and players[0].get("age") in ("AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN") else 0) + [""]
-        leaks = production_leaks(qfile, players)
+        # The age-end records are the last check of each world: without them, items of the turns after the last
+        # PLAYER check (every 5 turns) were never judged (review of 2026-11-10: a Kiln bought on Antiquity turn 138).
+        checked = players + [e for e in ends if "civAge" in e]
+        base_world = (["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"].index(players[0]["age"])
+                      if players and players[0].get("age") in ("AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN") else 0)
+        unjudged = []
+        leaks = production_leaks(qfile, checked, unjudged=unjudged)
         lines += ["## Later-age items started before the civ's gate (leaks)", ""]
-        lines += [f"- {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in leaks[:25]]
+        lines += [f"- LEAK FAIL: {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in leaks[:25]]
         if leaks:
             failed = True
         else:
             lines.append("- none")
+        if unjudged:
+            lines.append(f"Not judged (information): {len(unjudged)} gated items after the last check of their world (the run "
+                         f"ended inside it, no age-end record), for example {unjudged[0]}")
         lines.append("")
         # Purchases with gold or faith (CityPurchase.csv), the same rule (gotcha checker review 1, #7).
         pfile = LOGS / "CityPurchase.csv"
         if pfile.exists():
-            bought = production_leaks(pfile, players, item_col=3, names=item_names())
-            town_known, bought = town_purchase_known(bought, qfile) if bought else ([], [])
+            unjudged_bought = []
+            bought = production_leaks(pfile, checked, item_col=3, names=item_names(), unjudged=unjudged_bought)
+            town_known, bought = town_purchase_known(bought, qfile, base_world) if bought else ([], [])
             lines += ["## Later-age items bought before the civ's gate (leaks)", ""]
-            lines += [f"- {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in bought[:25]]
+            lines += [f"- LEAK FAIL: {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in bought[:25]]
             lines += [f"- KNOWN LIMIT (U-TOWN-PURCHASE): {w}, turn {t}, player {p} ({city}, a town; tag {', '.join(tg)}): {item} "
                       f"with civ age {ca}" for w, t, p, city, item, ca, tg in town_known[:25]]
             if bought:
                 failed = True
             elif not town_known:
                 lines.append("- none")
+            if unjudged_bought:
+                lines.append(f"Not judged (information): {len(unjudged_bought)} gated purchases after the last check of their "
+                             f"world (the run ended inside it, no age-end record), for example {unjudged_bought[0]}")
             lines.append("")
         replace_lines, replace_failed = replace_starts(qfile, players)
         lines += replace_lines
@@ -1933,6 +1978,8 @@ def main() -> int:
     passed, lines = analyze(start, autoplay_out, workdir, expect_transitions=args.expect_transitions)
     header = [f"# Iteration {stamp}: {'PASS' if passed else 'FAIL'}", "",
               f"- Turns: {args.turns}; suite: {args.suite}; fast test: {fast}; autoplay exit code: {res.returncode}",
+              # The whole command: a control build, --set, --observe and --disable-rule change what the run proves.
+              f"- Command: python iterate.py {' '.join(sys.argv[1:])}" + (" (CONTROL BUILD: base-game rules)" if args.control else ""),
               f"- Source: hash {source_hash} (source/), git {head}{' + uncommitted changes' if dirty else ''}",
               ] + ([f"- Worker: {WORKER} (own user folders, Mods and Saves in {gamepool.worker_dir(WORKER)}; game started "
                     "from its executable)"] if WORKER else []) + [

@@ -617,8 +617,12 @@ def main() -> int:
     sub.add_parser("install", help="install a checks build into this game's Mods folder: live.py [--worker N] install "
                                    "[build_mod.py options, for example --disable-rule oldres]; exit 2 when it fails")
     argv = sys.argv[1:]
-    if "install" in argv:  # everything after "install" goes to build_mod.py, also options that start with --
-        i = argv.index("install")
+    # The command is the first word after the global options (--worker N). Only the install command passes the rest
+    # to build_mod.py, also options that start with --; "all --only install" is not an install (review of 2026-11-10).
+    i = 0
+    while i < len(argv) and argv[i].startswith("-"):
+        i += 2 if argv[i] == "--worker" else 1
+    if i < len(argv) and argv[i] == "install":
         ap.parse_args(argv[:i + 1])
         return 0 if install(argv[i + 1:]) else 2
     a = ap.parse_args()

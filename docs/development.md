@@ -358,8 +358,8 @@ the repo:
    table in `classification.py` as content or system.
 2. If the build stops on a transition script edit, the game changed its transition script: update
    the edit in `build_test1.py`. Diff the game's old and new script to see what else changed: rebuild the old
-   script from the last release's copy (`scripts/age-transition-post-load.js` in its zip) by undoing
-   `TRANSITION_EDITS` in reverse order. Then add the same anchor change to `GAME_PATCHES` in `oldversion.py`, so that
+   script from the last release's copy (`scripts/age-transition-post-load.js` in its zip) by undoing the last
+   release's `TRANSITION_EDITS` (`git show v<version>:generator/build_test1.py`, not the current list) in reverse order. Then add the same anchor change to `GAME_PATCHES` in `oldversion.py`, so that
    the save tests can still build the previous release (`saves:play`, `tools/savecompat.py`).
 3. A game update turns off every mod once per user profile (`AppOptions.txt`, `[Modding]
    DisableModsOnStartupVersion`), and a test game then waits at the main menu. `gamepool.prepare()` enables each

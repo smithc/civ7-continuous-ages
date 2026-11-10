@@ -246,11 +246,12 @@ These systems stay with the world age and start at the world transition, as in t
 - legacy paths, triumphs, and golden and dark ages;
 - treasure fleets and the Distant Lands;
 - independent powers and discoveries. The base game replaces every city-state and independent at each world
-  transition: the engine removes them before the transition script runs, and new independents start the new world
-  with no techs and a starter army (game 1.5.1: runs 20261110-114253-w1 with the mod and -w2 with the control build;
-  the `RELOADMINOR` record found no minor player at either load). The mod keeps this. In the joined tree a new
-  independent starts at the first Antiquity tech, so in later worlds independents field older units than in the
-  base game;
+  transition. In the `MINORS` records of game 1.5.1, the new world's independents have no tech and a starter army,
+  with the mod (run 20261110-114253-w1) and with the control build (-w2). The `RELOADMINOR` record of the transition
+  script (city-states only: the game's loop skips independents) found no city-state at either load of -w1. The mod
+  keeps this. A new independent starts with no tech of the joined tree, so in later worlds independents field older
+  units than in the base game: Phalanx and Scout in the Exploration world, against Swordsman and Scout with the control
+  build (see U-INDEPENDENT-TIER in [Known limits](known-limits.md#engine-limits));
 - the final victories (Modern world);
 - religion steps and diplomacy actions of each age;
 - the age's growth curve and balance values.

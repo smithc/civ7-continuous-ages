@@ -24,7 +24,8 @@ reset of a civ's progress except where noted.
 | **U-POLICY-LOAD** | At the Modern load the game gives every civ the Exploration main-tree policies, earned or not; Levies and Divine Right then replace Conscription and Oratory. | Policies change, not lost. |
 | **U-GREAT-PERSON**, **U-CRISIS-UNIT** | Every great person is removed at each load, also for a civ that keeps its civ: Egypt's Tjaty, Spain's conquistadors, Abbasid's Alim al-Shaybani (iterations 20261031-153836, 155019, 155901). The base game keeps only commanders (`Unit_TransitionRetains`). Plague Physicians end with their crisis. | As in the base game. |
 | **U-LEVY** | Independent powers research the joined tree at their own pace and can field later-age units, which a major civ can get by a levy before its own Breakthrough. | Rare (seen once, in a test with cheap techs). |
-| **U-TOWN-PURCHASE** | Base-game behavior: a town that may buy buildings of a tag (a town focus such as Factory Town or Fort Town, Augustus's ability, the civ abilities of Carthage, England, Gaul and Joseon; `EFFECT_ADJUST_TOWN_CAN_PURCHASE_TAGGED_CONSTRUCTIBLES`) can buy a building of that tag without the building's own tech or civic. The engine names the missing unlock but allows the purchase. The base game has this within one age; the mod loads every age's content in every world, so a town can also buy buildings of a later age before its civ's Breakthrough. Evidence (2026-11-10, game 1.5.1): in a live test, Augustus's new town bought an Amphitheater (Engineering), a Pavilion and a Kiln (Exploration techs) and an Opera House (Modern tech) at Antiquity turn 3, while the capital was refused each one; with the control build (base-game rules) the town also bought the Amphitheater without Engineering. In run 20261110-114253-w1, Egypt (tech age Exploration) bought a Port (Steam Engine) in a Factory Town in the Modern world. The game has no effect that blocks one building for one player (the executable's strings have `EFFECT_PLAYER_DISABLE_BUILD_UNIT` only for units). | Towns with such a source can buy some later-age buildings early, with gold. The run analysis lists such purchases as this known limit: a purchase in a settlement with no production that turn (a town) of a building with a tag that a town's tagged purchase names. |
+| **U-TOWN-PURCHASE** | Base-game behavior: a town that may buy buildings of a tag (a town focus such as Factory Town or Fort Town, Augustus's ability, the civ abilities of Carthage, England, Gaul and Joseon, an Antiquity crisis story; `EFFECT_ADJUST_TOWN_CAN_PURCHASE_TAGGED_CONSTRUCTIBLES`) can buy a building of that tag without the building's own tech or civic. The engine names the missing unlock but allows the purchase. The base game has this within one age; the mod loads every age's content in every world, so a town can also buy buildings of a later age before its civ's Breakthrough. Evidence (game 1.5.1, scenario `town_purchase.js`): Augustus's new town bought the Amphitheater (Engineering), the Pavilion and the Kiln (Exploration techs) and the Opera House (Modern tech) at Antiquity turn 3, and the capital was refused each one (20261110-131632-w1); a town with no tag source (Hatshepsut) could not buy them (20261110-131714-w1); with the control build (base-game rules) Augustus's town bought the Amphitheater without Engineering (20261110-131854-w1). In run 20261110-114253-w1, Egypt (tech age Exploration) bought a Port (Steam Engine) in a Factory Town in the Modern world. The game has no effect that blocks one building for one player (the executable's strings have `EFFECT_PLAYER_DISABLE_BUILD_UNIT` only for units). | Towns with such a source can buy some later-age buildings early, with gold. The run analysis lists such purchases as this known limit: a town (no production row in that world up to the turn after the purchase; never turn 1) buys a building with a tag that a town's tagged purchase names. |
+| **U-INDEPENDENT-TIER** | The base game replaces every independent and city-state at each world transition (see [Mechanics](mechanics.md#world-systems)). A new independent starts with no tech, and in the joined tree that is the start of Antiquity, so in later worlds independents field older units than in the base game. First-turn `MINORS` records of game 1.5.1: Exploration world, mod `PHALANX, SCOUT`, control build `SCOUT, SWORDSMAN`; Modern world, mod `MAN_AT_ARMS, SCOUT`, control `LINE_INFANTRY, SCOUT` (runs 20261110-114253-w1 and -w2). Some independents research the joined tree and reach the Breakthroughs later in the world (U-LEVY). | Independents of later worlds are weaker than in the base game. Open: a decision whether independents should start at the world's age. |
 
 ## Updating a game in progress
 
@@ -53,21 +54,30 @@ through the next world transition where there was one, and one 0.2.0 save of a h
 
 ### From 0.5.0 to 0.5.1
 
-0.5.1 is 0.5.0 built for game update 1.5.1 (no rule change). The save database check against v0.5.0 found the same
-tables in all three worlds (`tools/savecompat.py v0.5.0`, 2026-11-10, both builds on 1.5.1). The save test of the release
-set plays v0.5.0 on 1.5.1 (built with `oldversion.py`) and loads its autosaves with 0.5.1.
+0.5.1 is 0.5.0 built for game update 1.5.1 (no rule change). Checks of 2026-11-10:
+
+- `tools/savecompat.py v0.5.0` (v0.5.0 rebuilt on 1.5.1 with `oldversion.py`): the same tables in all three worlds.
+- `tools/savecompat.py --old <the published 0.5.0 zip, built on 1.5.0>`: one saved id is gone,
+  `262B_NARRATIVE_MODIFIER2`, in the Antiquity and Exploration worlds. Game update 1.5.1 deleted it from its own Modern
+  data, which the mod copies into the other worlds; the base game lost it in the Modern world too. A save breaks there
+  only if that narrative story had fired.
+- The save test of the release set plays v0.5.0 rebuilt on 1.5.1 and loads its autosaves with 0.5.1. Those are not saves
+  made on game 1.5.0.
 
 - **The game update turns off every mod once.** At its first start on a new version the game disables every mod
   (`AppOptions.txt`, `[Modding] DisableModsOnStartupVersion`) and shows "Mod settings reset". A Continuous Ages save
-  needs the mod: turn it on again in Add-ons before you load the game.
+  needs the mod: turn it on again in the Add-ons screen (Additional Content) before you load the game.
 - **The great people that 1.5.1 moved into civ abilities wait for the next world transition.** Game update 1.5.1 grants
   the Alim, Conquistador, Saga Hero, Jacobin, Revolucionario and Uparat through new civ-ability modifiers
   (`TRAIT_MOD_GRANT_*`), and rule 5e gates them (`CA_GATE_TRAIT_MOD_GRANT_*`). A modifier that a new version adds does
   not attach when an older save loads (see the section below), so in a game continued from 1.5.0 these civs get none of
-  these units until the next world transition. The base game has the same issue for its own new modifiers.
-- **Games of the published 0.5.0 on game 1.5.1** (offline check only): its database loads on 1.5.1 with no issues, and
-  its copy of the 1.5.0 transition script still finds all its imports. It keeps the 1.5.0 transition (the 1.5.1 loop over
-  city-states is not in it) and the 1.5.0 version of the content that it copies into other worlds.
+  these units until the next world transition (inferred from the engine fact of rule 2l; not seen in a game). The base
+  game has the same issue for its own new modifiers.
+- **Games of the published 0.5.0 on game 1.5.1** (offline check only, 2026-11-10: the 0.5.0 zip's database loaded into
+  the 1.5.1 database with the `validate` steps of `build_mod.py`, and its transition script's imports compared with the
+  1.5.1 files): no load issue in any world, and every import is still there. It keeps the 1.5.0 transition (without the
+  1.5.1 loop over city-states, which found none in runs 20261110-114253-w1 and 121302-w1) and the 1.5.0 version of the
+  content that it copies into other worlds.
 
 ### From 0.4.0 to 0.5.0
 
@@ -119,6 +129,11 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
 - Map scripts other than Continents and Earth.
 - The **Catch-up Research** option (see [Settings](settings.md#catch-up-research-mod-option)): costs in
   the Modern world and of civ-specific civic trees were not measured.
+- **The great people that game update 1.5.1 moved into civ abilities** (Alim, Conquistador, Saga Hero, Jacobin,
+  Revolucionario, Uparat): the build gates their grant modifiers with rule 5e (`CA_GATE_TRAIT_MOD_GRANT_*`), and in run
+  20261110-114253-w1 Abbasid (Persia's new civ, behind its gate) had 0 of 5 gated modifiers active at the Exploration
+  load. No game has shown such a grant fire after the civ's Breakthrough.
+- The new map **Randomized Earth** (game 1.5.1). Its transition takes the generic resource step, as on every map.
 
 ## Open checks
 

@@ -65,9 +65,9 @@ RECOMMENDED SETTINGS
 
 NEW IN 0.5.1
 - Built for game update 1.5.1. The rules of 0.5.0 are unchanged.
-- After a game update, the game turns off every mod once. Turn Continuous Ages on again in Add-ons before you load a game.
+- After a game update, the game turns off every mod once. Turn Continuous Ages on again in the Add-ons screen (Additional Content) before you load a game.
 - The great people that game update 1.5.1 moved into civ abilities (Alim, Conquistador, Saga Hero, Jacobin, Revolucionario, Uparat) wait for the civ's Breakthrough of their age, as its other civ abilities do. In a game saved before the update, they come after the next world transition.
-- Known limit: a town that can buy buildings of a type (a town focus, Augustus, some civ abilities) can also buy later-age buildings of that type before your Breakthrough. The base game allows this within one age.
+- Newly documented known limit, also in 0.5.0: a town that can buy buildings of a type (a town focus, Augustus, some civ abilities) can also buy later-age buildings of that type before your Breakthrough. The base game allows this within one age.
 - Games saved with 0.5.0 continue with 0.5.1.
 
 STATUS
