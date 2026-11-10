@@ -256,12 +256,16 @@ function growthState(player) {
 // MINORS record: independents and city-states do not use the civ-age gates. Which tech nodes and
 // unit types do they have (iteration 20261025-022511: an independent had Frigates in the Exploration
 // world, and a major civ then held one before its Modern gate)?
-function minorsRecord(turn) {
+// Game 1.5.1 runs the transition's city and unit steps for city-states (minor players), so the record also
+// tells whether a minor goes on through a world transition: when ("turn", or "end" from the age-end handler
+// in ca-automation.js), kind (cityState = isMinor, independent = isIndependent), civ, leader and city names
+// (the same player after the load, or a new one in the same slot). The transition script writes RELOADMINOR.
+function minorsRecord(turn, when = "turn") {
   try {
     const age = GameInfo.Ages.lookup(Game.age)?.AgeType;
     let n = 0;
     for (const player of Players.getAlive()) {
-      if (player.isMajor || n >= 4) continue;
+      if (player.isMajor || n >= 16) continue;
       n++;
       const nodes = { AQ: 0, EX: 0, MO: 0, gateEX: 0, gateMO: 0 };
       for (const node of GameInfo.ProgressionTreeNodes) {
@@ -274,13 +278,21 @@ function minorsRecord(turn) {
         else if (t.startsWith("NODE_TECH_EX_")) nodes.EX++;
         else if (t.startsWith("NODE_TECH_MO_")) nodes.MO++;
       }
-      const units = [...new Set(unitTypes(player))].slice(0, 12);
-      log("MINORS", JSON.stringify({ age, turn, id: player.id, nodes, units }));
+      const all = unitTypes(player);
+      const units = [...new Set(all)].slice(0, 12);
+      const kind = player.isMinor ? "cityState" : player.isIndependent ? "independent" : "other";
+      const civ = (GameInfo.Civilizations.lookup(player.civilizationType)?.CivilizationType ?? `${player.civilizationType}`).replace(/^CIVILIZATION_/, "");
+      const leader = (GameInfo.Leaders.lookup(player.leaderType)?.LeaderType ?? `${player.leaderType}`).replace(/^LEADER_/, "");
+      const cityIds = player.Cities?.getCityIds() ?? [];
+      const cities = cityIds.slice(0, 3).map((c) => `${Cities.get(c)?.name ?? "?"}`.replace(/^LOC_CITY_NAME_/, ""));
+      log("MINORS", JSON.stringify({ age, turn, when, id: player.id, kind, civ, leader, nCities: cityIds.length, cities,
+        nodes, nUnits: all.length, units }));
     }
   } catch (e) {
     log("ERROR", `minors record: ${e}`);
   }
 }
+globalThis.caMinorsRecord = minorsRecord; // ca-automation.js: the record at the age end
 
 // Policy names (POLICIES record): the policy count fell by one at the Antiquity transition.
 function policyNames(player) {

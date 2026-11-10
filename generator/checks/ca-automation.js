@@ -229,6 +229,9 @@ class AutomationTestCAPlayAges extends AutomationBasePlayGame {
     }
     try { logResources(age); }
     catch (e) { console.warn(`[CA-CHECK][ERROR] age end resources: ${e}`); }
+    // Minor players at the age end (MINORS, when "end"; ca-checks.js), to compare with the RELOADMINOR records.
+    if (globalThis.caMinorsRecord) globalThis.caMinorsRecord(Game.turn, "end");
+    else console.warn("[CA-CHECK][ERROR] caMinorsRecord is not loaded");
     // The last age has no next age: end the test as PlayGame does.
     if (age === "AGE_MODERN") {
       super.onGameAgeEndedListener();

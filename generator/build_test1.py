@@ -368,7 +368,8 @@ TRANSITION_EDITS = [
      "  } catch (e) {\n"
      "    console.log(`[CA] shadow check error, player ${player.id}: ${e}`);\n"
      "  }\n"),
-    ("function getNumDefenders() {\n",
+    # Game 1.5.1.32: getNumDefenders takes the player (city-states get half the defenders).
+    ("function getNumDefenders(iPlayer) {\n",
      "// GameInfo tables in this script can be iterated but are not all arrays (iteration 20261025-003254:\n"
      "// Unit_ShadowReplacements.map is not a function).\n"
      "var g_caArrays = null;\n"
@@ -610,7 +611,7 @@ TRANSITION_EDITS = [
      "  if (count) count.ownAge = (count.ownAge ?? 0) + 1;\n"
      "  return own != null && caCanHaveUnit(player, own) ? own : best.UnitType;\n"
      "}\n"
-     "function getNumDefenders() {\n"),
+     "function getNumDefenders(iPlayer) {\n"),
     ("      const buildUnit = player.Units?.getBuildUnit(shadowOption.UnitType);\n      if (buildUnit != null) {\n",
      "      let buildUnit = player.Units?.getBuildUnit(shadowOption.UnitType);\n"
      "      if (buildUnit != null && !caCanHaveUnit(player, buildUnit)) buildUnit = caOwnAgeUnit(player, shadow); // Continuous Ages: the civ's own age\n"
@@ -725,6 +726,52 @@ TRANSITION_EDITS = [
      "  }\n"
      "}\n"
      "function caShadowCounts(iPlayer) {\n"),
+    # Check record (game 1.5.1): the transition loop now takes city-states (minor players) too, and runs the unit
+    # steps (positionUnits, with the shadow code above) for them. RELOADMINOR, before the unit steps ('before') and
+    # after them ('after'): civ, leader and city names (the same player as at the age end?), tech nodes of the joined
+    # tree, units, and shadows. iterate.py minor_players_report() pairs them with the MINORS age-end records.
+    ("function caShadowCounts(iPlayer) {\n",
+     "function caLogMinor(iPlayer, when) {\n"
+     "  try {\n"
+     "    const p = Players.get(iPlayer);\n"
+     "    if (p == null || p.isMajor) return;\n"
+     "    const nodes = { AQ: 0, EX: 0, MO: 0, gateEX: 0, gateMO: 0 };\n"
+     "    if (typeof Game.ProgressionTrees?.getNodeState == 'function') {\n"
+     "      const S = typeof ProgressionTreeNodeState != 'undefined' ? ProgressionTreeNodeState : null;\n"
+     "      for (const n of GameInfo.ProgressionTreeNodes) {\n"
+     "        if (n.ProgressionTree != 'TREE_TECHS_AQ') continue;\n"
+     "        const s = Game.ProgressionTrees.getNodeState(iPlayer, Database.makeHash(n.ProgressionTreeNodeType));\n"
+     "        if (!(S ? (s >= S.NODE_STATE_FULLY_UNLOCKED || s === S.NODE_STATE_UNLOCKED) : s >= 5)) continue;\n"
+     "        const t = n.ProgressionTreeNodeType;\n"
+     "        if (t == 'NODE_TECH_CA_EXPLORATION_BREAKTHROUGH') nodes.gateEX++;\n"
+     "        else if (t == 'NODE_TECH_CA_MODERN_BREAKTHROUGH') nodes.gateMO++;\n"
+     "        else if (t.startsWith('NODE_TECH_AQ_')) nodes.AQ++;\n"
+     "        else if (t.startsWith('NODE_TECH_EX_')) nodes.EX++;\n"
+     "        else if (t.startsWith('NODE_TECH_MO_')) nodes.MO++;\n"
+     "      }\n"
+     "    } else nodes.unavailable = true;\n"
+     "    const all = (p.Units?.getUnitIds() ?? []).map((u) => (GameInfo.Units.lookup(Units.get(u)?.type)?.UnitType ?? '?').replace(/^UNIT_/, '')).sort();\n"
+     "    const cityIds = p.Cities?.getCityIds() ?? [];\n"
+     "    const rec = { when, age: GameInfo.Ages.lookup(Game.age)?.AgeType ?? null, id: iPlayer,\n"
+     "      kind: p.isMinor ? 'cityState' : p.isIndependent ? 'independent' : 'other',\n"
+     "      civ: (GameInfo.Civilizations.lookup(p.civilizationType)?.CivilizationType ?? `${p.civilizationType}`).replace(/^CIVILIZATION_/, ''),\n"
+     "      leader: (GameInfo.Leaders.lookup(p.leaderType)?.LeaderType ?? `${p.leaderType}`).replace(/^LEADER_/, ''),\n"
+     "      nCities: cityIds.length, cities: cityIds.slice(0, 3).map((c) => `${Cities.get(c)?.name ?? '?'}`.replace(/^LOC_CITY_NAME_/, '')),\n"
+     "      nodes, nUnits: all.length, units: [...new Set(all)].slice(0, 12) };\n"
+     "    if (when == 'before') rec.nShadows = p.Units?.getUnitShadows?.()?.length ?? null;\n"
+     "    else rec.shadows = caShadowCounts(iPlayer);\n"
+     "    console.log(`[CA-CHECK][RELOADMINOR] ${JSON.stringify(rec)}`);\n"
+     "  } catch (e) {\n"
+     "    console.log(`[CA] minor record error, player ${iPlayer}: ${e}`);\n"
+     "  }\n"
+     "}\n"
+     "function caShadowCounts(iPlayer) {\n"),
+    ("const regressedCities = []; // Continuous Ages: cities stay cities\n",
+     "caLogMinor(iPlayer, 'before'); // Continuous Ages check record: a minor player before the unit steps\n"
+     "    const regressedCities = []; // Continuous Ages: cities stay cities\n"),
+    ("    if (player.isMajor) {\n",
+     "    caLogMinor(iPlayer, 'after'); // Continuous Ages check record: a minor player after the unit steps\n"
+     "    if (player.isMajor) {\n"),
     ("  doMapUpdates();\n",
      "  caLogResources('before'); // Continuous Ages check record: resource plots after the load\n"
      "  doMapUpdates();\n"),

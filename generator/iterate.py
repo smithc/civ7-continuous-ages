@@ -679,6 +679,46 @@ def reload_slots(transitions: list, res_batches: list, n_batches: int) -> tuple[
     return slots, [a for a in ages if by_age and a not in seen]
 
 
+def minor_players_report(minors: list, reload_minors: list) -> list[str]:
+    """Minor players through each world transition (game 1.5.1 runs the transition's unit steps for city-states):
+    the age end (MINORS, when "end", UI.log) against the reload (RELOADMINOR 'before' and 'after', Scripting.log)
+    and the first MINORS record of the new world. 'same' = the same civ, leader and city names in the slot, that
+    is, the player went on through the transition. Information only: the expected behavior is open (2026-11-10)."""
+    order = ["AGE_ANTIQUITY", "AGE_EXPLORATION", "AGE_MODERN"]
+    lines = ["## Minor players at world transitions (city-states and independents; information)", ""]
+    if not minors and not reload_minors:
+        return lines + ["- no MINORS or RELOADMINOR records", ""]
+    nodes = lambda r: "-" if r is None else ("n/a" if r["nodes"].get("unavailable") else
+                                             "{AQ}/{EX}/{MO} g{gateEX}{gateMO}".format(**r["nodes"]))
+    ident = lambda r: (r.get("civ"), r.get("leader"), tuple(r.get("cities") or []))
+    lines += ["Nodes: AQ/EX/MO techs of the joined tree, g = Exploration and Modern Breakthrough done. Units: count.", "",
+              "| New world | Slot | Kind (end / reload) | Civ (end / reload) | Same player | Cities end / before / after "
+              "| Nodes end / before / after / first turn | Units end / before / after / first turn | Shadows (before; kept, made, ownAge, lost) |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for new in order[1:]:
+        old = order[order.index(new) - 1]
+        end = {r["id"]: r for r in minors if r.get("when") == "end" and r.get("age") == old}
+        before = {r["id"]: r for r in reload_minors if r.get("when") == "before" and r.get("age") == new}
+        after = {r["id"]: r for r in reload_minors if r.get("when") == "after" and r.get("age") == new}
+        turns = [r["turn"] for r in minors if r.get("when", "turn") == "turn" and r.get("age") == new]
+        first = {r["id"]: r for r in minors if r.get("when", "turn") == "turn" and r.get("age") == new
+                 and turns and r["turn"] == min(turns)}
+        for pid in sorted(set(end) | set(before) | set(after) | set(first)):
+            e, b, a, f = end.get(pid), before.get(pid), after.get(pid), first.get(pid)
+            r = b or a or f
+            same = "-" if e is None or r is None else ("yes" if ident(e) == ident(r) else "no")
+            sh = a.get("shadows") if a else None
+            sh_text = "-" if a is None and b is None else (f"{b.get('nShadows') if b else '-'}; " + (
+                ", ".join(str((sh or {}).get(k, 0)) for k in ("kept", "made", "ownAge", "lost")) if sh else "none"))
+            g = lambda x, k: x.get(k, "?") if x else "-"  # MINORS records before 2026-11-10 have no kind, civ, counts
+            lines.append(f"| {new.replace('AGE_', '')} | {pid} | {g(e, 'kind')} / {g(r, 'kind')} "
+                         f"| {g(e, 'civ')} / {g(r, 'civ')} | {same} "
+                         f"| {' / '.join(str(g(x, 'nCities')) for x in (e, b, a))} "
+                         f"| {' / '.join(nodes(x) for x in (e, b, a, f))} "
+                         f"| {' / '.join(str(g(x, 'nUnits')) for x in (e, b, a, f))} | {sh_text} |")
+    return lines + [""]
+
+
 def reload_reset_report(transitions: list, ends: list, reload_batches: list, ui_resources: list,
                         res_batches: list, slots: list | None = None) -> tuple[list[str], bool]:
     """Design goal 1, the base game's headline resets: at each world transition, the age end (AGEEND and
@@ -1576,6 +1616,7 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                                                     res_batches, slots)
     lines += reset_lines
     failed |= reset_failed
+    lines += minor_players_report(records("MINORS"), records("RELOADMINOR"))
     # Units held at each age end, against the civ's age then: covers every way to get a unit,
     # including upgrades (rule 2g), which the production, purchase and transition checks do not see.
     # Unique units of the civ's current civ are the half swap's conversions (known limit).

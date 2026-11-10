@@ -309,6 +309,60 @@ def set_option(path: Path, key: str, value) -> None:
             f.write(new)
 
 
+# A game update disables every mod once: AppOptions [Modding] DisableModsOnStartupVersion ("Incremented version to
+# disable mods at startup the first time after an update"). A game whose value is older than the game's own sets
+# Mods.Disabled = 1 for each mod in Mods.sqlite, writes the new value, and the main menu shows "Mod settings reset"
+# (main-menu.js checkIfModsWereReset). The test mod's automation script then cannot load ("Cannot determine local
+# path - fs://game/continuous-ages/ui/ca-automation.js"), and the game waits at the main menu (game 1.5.1, 2026-11-10:
+# runs 20261110-113403-w1 and 113404-w2). prepare() therefore copies the highest value of the real user and all workers
+# (after one game start on the new version, the other workers do not disable their mods), and enables the mods in the
+# worker's own Mods folder (each run installs its build there).
+MOD_RESET_OPTION = "DisableModsOnStartupVersion"
+
+
+def read_option(path: Path, key: str) -> str | None:
+    """The value of an option that is set (not commented out) in a game option file, or None."""
+    if not path.exists():
+        return None
+    found = re.search(rf"^[ \t]*{re.escape(key)}[ \t]+(\S+)", path.read_bytes().decode("utf-8", errors="replace"), re.M)
+    return found.group(1) if found else None
+
+
+def sync_mod_reset_version(dst: Path) -> int | None:
+    """Sets the worker's DisableModsOnStartupVersion to the highest value of the real user and all workers."""
+    files = [user_data(None) / "AppOptions.txt"]
+    files += [user_data(int(w.name[1:])) / "AppOptions.txt" for w in WORKERS.glob("w*") if w.name[1:].isdigit()]
+    values = [int(v) for v in (read_option(f, MOD_RESET_OPTION) for f in files) if v and v.isdigit()]
+    if not values or not (dst / "AppOptions.txt").exists():
+        return None
+    try:
+        set_option(dst / "AppOptions.txt", MOD_RESET_OPTION, max(values))
+    except ValueError:  # a game version without this option
+        return None
+    return max(values)
+
+
+def enable_own_mods(dst: Path) -> list[str]:
+    """Enables (Mods.Disabled = 0) the mods whose modinfo is in the worker's own Mods folder. Only while no game of
+    the worker runs (the game holds Mods.sqlite)."""
+    import sqlite3
+    db = dst / "Mods.sqlite"
+    if not db.exists():
+        return []
+    own = (dst / "Mods").as_posix().lower().rstrip("/") + "/"
+    con = sqlite3.connect(db)
+    try:
+        rows = con.execute("SELECT m.ModRowId, m.ModId, f.Path FROM Mods m JOIN ScannedFiles f "
+                           "ON f.ScannedFileRowId = m.ScannedFileRowId WHERE m.Disabled != 0").fetchall()
+        fix = [(row, mod) for row, mod, path in rows if str(path).replace("\\", "/").lower().startswith(own)]
+        for row, _ in fix:
+            con.execute("UPDATE Mods SET Disabled = 0 WHERE ModRowId = ?", (row,))
+        con.commit()
+    finally:
+        con.close()
+    return [mod for _, mod in fix]
+
+
 def prepare(n: int, live: bool = False, copy_saves: tuple[str, ...] = ()) -> dict:
     """Makes or refreshes worker n. A new worker gets a copy of the real user's game folder (options, the Mods
     database, legal and account caches; not Logs, dumps or mods). Each call sets UIDebugger (1 only for a live
@@ -334,6 +388,10 @@ def prepare(n: int, live: bool = False, copy_saves: tuple[str, ...] = ()) -> dic
         set_option(dst / "GraphicsOptions.txt", key, value)
     for key, value in WORKER_USER_OPTIONS:
         set_option(dst / "UserOptions.txt", key, value)
+    sync_mod_reset_version(dst)
+    enabled = enable_own_mods(dst)
+    if enabled:
+        print(f"Worker {n}: enabled its own mods again (a game update had disabled them): {', '.join(enabled)}")
     own = saves(n)
     real = saves(None)
     copied = []
