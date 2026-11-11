@@ -249,9 +249,11 @@ These systems stay with the world age and start at the world transition, as in t
   transition. In the `MINORS` records of game 1.5.1, the new world's independents have no tech and a starter army,
   with the mod (run 20261110-114253-w1) and with the control build (-w2). The `RELOADMINOR` record of the transition
   script (city-states only: the game's loop skips independents) found no city-state at either load of -w1. The mod
-  keeps this. A new independent starts with no tech of the joined tree, so in later worlds independents field older
-  units than in the base game: Phalanx and Scout in the Exploration world, against Swordsman and Scout with the control
-  build (see U-INDEPENDENT-TIER in [Known limits](known-limits.md#engine-limits));
+  keeps this. Independents never research (0 nodes all game, mod and base game), and their units do not follow their
+  own techs: they get the units that enough major civs have unlocked. A world's starter units (Exploration: Swordsman,
+  Heavy Archer, Courser, Catapult, Cog; Modern: Line Infantry, Cuirassier, Field Cannon, Mortar, Frigate) need no tech
+  in the base game, and the Breakthrough in the mod, so early in a world the mod's independents field older units than the base
+  game's (see U-INDEPENDENT-TIER in [Known limits](known-limits.md#engine-limits));
 - the final victories (Modern world);
 - religion steps and diplomacy actions of each age;
 - the age's growth curve and balance values.
