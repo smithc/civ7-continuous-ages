@@ -265,3 +265,9 @@ Gaps to close next, most important first:
    re-analyzed; and a leak: a legacy civ's Modern building, an open check); Marathon 20261107-222452-w2 (a
    Mamluk lost at a civ change, an open check; see [Known limits](known-limits.md#open-checks)). Rule 2m's removals at the Modern load were seen in 10 of 13 whole games, and PROJECT
    REPEAT passed in all.
+   Set of 2026-11-10 for the 0.5.1 candidate on game 1.5.1 (git e73c502, 20261110-132232; 91 min on 6 workers): 16
+   of 19 items passed. Not passed: seed 777 20261110-141509-w2 (PROJECT REPEAT counted one completion twice, fixed:
+   re-analysis PASS, and the 15 other runs stay PASS); default seed 2002 20261110-141728-w6 (a Keshig lost at a change
+   to Qajar, the open check of 0.5.0; the user chose to ship 0.5.1 with it); `live` (ocean_damage.js and
+   old_resources.js, broken by game 1.5.1, fixed in b70d901; all 20 scenarios then passed, 20261110-155915-w4-all.md).
+   Regroup: 20261110-154406-w1.

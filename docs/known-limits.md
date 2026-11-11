@@ -62,7 +62,8 @@ through the next world transition where there was one, and one 0.2.0 save of a h
   data, which the mod copies into the other worlds; the base game lost it in the Modern world too. A save breaks there
   only if that narrative story had fired.
 - The save test of the release set plays v0.5.0 rebuilt on 1.5.1 and loads its autosaves with 0.5.1. Those are not saves
-  made on game 1.5.0.
+  made on game 1.5.0. Five saves (Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60) each played
+  20 turns with 0.5.1: all passed (20261110-140830-w6, 141240-w6, 141337-w5, 141352-w1, 141407-w4).
 
 - **The game update turns off every mod once.** At its first start on a new version the game disables every mod
   (`AppOptions.txt`, `[Modding] DisableModsOnStartupVersion`) and shows "Mod settings reset". A Continuous Ages save
