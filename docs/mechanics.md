@@ -14,6 +14,7 @@ This page lists each game mechanic that the mod changes, compared with the base 
   - [Cities, gold and influence](#cities-gold-and-influence)
   - [Resources](#resources)
   - [Policies and traditions](#policies-and-traditions)
+  - [Masteries](#masteries)
   - [Governments](#governments)
   - [Legacy cards](#legacy-cards)
 - [Content locked by civ age](#content-locked-by-civ-age)
@@ -144,6 +145,38 @@ No city becomes a town, and gold and influence are not capped.
   remove an earned policy.
 - Traditions are kept.
 
+### Masteries
+
+A tech or civic with a mastery has two levels (depth 1 and depth 2). Each level unlocks things; some of
+them are bonuses that the game attaches to the civ (modifiers). When a new world loads, the game attaches
+again only the bonuses of the level that the civ has now. The base game never has this case, because its
+trees do not live across ages. In this mod they do.
+
+- **Up to version 0.5.1**, a civ that mastered a tech or civic before a world transition lost the bonuses
+  of the first level in the next world. Examples: Shipbuilding's deep-ocean protection and "deep ocean
+  does not end the move" (a player report: damage in the Exploration world "even with the tech"); the
+  specialist cap of Currency, Education, Urban Planning, Capitalism and Electricity; the tradition slot of
+  Code of Laws and Authority; the pantheon of Mysticism; unit flanking of Military Training. A civ with
+  the first level only kept them.
+- **Now (rule 2n)** a hidden unlock at the second level names a copy of each such bonus. The copy is
+  attached at the mastery, and again at every world load. For a bonus that would count twice when
+  attached twice (specialist cap, tradition slot, a combat strength bonus, the resource bonuses of the
+  Wheel), the first level names a copy that stops at the mastery, so the bonus counts once at every
+  level. For a bonus that is on or off (ocean protection, flanking, pantheon, archaeology, victory point
+  trackers), the first level is as in the base game. The build report lists the rows: 22 to 24 per world,
+  on about 20 techs and civics.
+- **Not changed:**
+  - Grants (a free Merchant, Army Commander or Settler; the science points of Social Class) are given once.
+  - The **settlement cap** is the opposite case. The game carries the cap number across a transition by
+    itself (the base game gives each age a minimum, not a reset). So a mastered tech keeps its +1 without
+    any bonus attached. A tech at its first level gets its bonus attached again at each load, on top of
+    the carried number: +1 settlement cap again for each such tech or civic, at each transition. This is
+    a known limit (U-CAP-AGAIN in [Known limits](known-limits.md#engine-limits)), in every version so far.
+- Proof: `scenarios/mastery_unlocks.js` (normal research), `scenarios/mastery_census.js` (every row, both
+  transitions) and `scenarios/update_051.js` (a game saved with 0.5.1); see [Testing](testing.md). A game
+  saved with 0.5.1 gets the lost bonuses back at its next world transition
+  ([Known limits](known-limits.md#updating-a-game-in-progress)).
+
 ### Governments
 
 At a world transition, every civ takes a government of the new world age, as in the base game: the
@@ -233,6 +266,8 @@ An upgrade needs the civ to be able to build the target unit, so the age gates a
   Exploration Breakthrough can meet them, because its ships can reach them. Up to version 0.3.0 such a
   civ saw their cities but never met them (a player report). Only one of the two civs needs the
   Breakthrough.
+- Up to version 0.5.1, a civ that mastered Shipbuilding before a world transition lost the protection (and
+  "deep ocean does not end the move") in the next world (a player report). See [Masteries](#masteries).
 - Proof: the scenario tests `scenarios/ocean_damage.js` and `scenarios/meet_distant.js` (see
   [Testing](testing.md)). AI civs almost never sail deep ocean in Antiquity, so autoplay runs cannot show it.
 - The Exploration civs' free ship comes once per civ, at the later of its Exploration Breakthrough

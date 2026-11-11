@@ -17,6 +17,7 @@ Usage: python build_mod.py [--install] [--package] [--checks] [--fast-test [F]] 
 from __future__ import annotations
 
 import argparse
+import copy
 import fnmatch
 import json
 import os
@@ -1655,6 +1656,140 @@ def kept_resources(sims: dict) -> dict[str, list[dict]]:
     return out
 
 
+# Rule 2n. At the load of a new world the engine attaches again only the KIND_MODIFIER unlocks of a node's CURRENT
+# depth: a node mastered (depth 2) before the transition loses its depth-1 modifiers (a player report of 2026-11-10:
+# Shipbuilding mastered in the Antiquity world, deep-ocean damage in the Exploration world; runs 20261111-114432-w1 and
+# 20261111-120817-w1). The base game never has this case (its trees do not live across ages). The rule adds a hidden
+# unlock row at the next depth that names a copy of the modifier (as the original), so the copy is attached at the
+# mastery and again at every world load. Two other forms were tried on 2026-11-11 with probe builds (removed since; the
+# records are in docs/testing.md and build/player-reports/2026-11-11.md): a copy on every major civ (TraitModifiers) with
+# the requirement "has completed the node" worked in a new game (20261111-121338-w1), but such a row does not attach in
+# a game saved by an older version (20261111-121754-w1), so a node completed after an update would give nothing until
+# the next world. A second row for the same modifier is not possible (the table's key is node + target). What happens
+# to the row itself depends on the effect:
+#   switch   (on or off: twice is the same as once) the row stays as the base game has it. In the world of the mastery
+#            the original and the copy are both attached; after a transition only the copy.
+#   additive (twice counts twice: one modifier id gives +1 settlement cap per node that unlocks it) the row names a
+#            second copy that stops when the node goes deeper (owner requirement: NOT completed at the next depth; not
+#            permanent, so that it can stop). So one copy counts at every depth. The base game uses each of these
+#            effects without "permanent" too (effectforms.py, 2026-11-11).
+#   carried  the engine keeps the value itself across a transition (the settlement cap: the base game gives each age a
+#            minimum, not a reset). A mastered node keeps its amount without any modifier, so the row is left. The
+#            other case is a known limit, not this rule's subject: a node AT the row's depth gets the row attached
+#            again at each load, on top of the carried value (+1 per such row and transition; census runs
+#            20261111-130218-w1 to 130900-w1: the cap rose at each transition by the number of cap rows at their node's
+#            depth, and by nothing else).
+# An effect in no set stops the build (a game patch or a DLC added one): decide its set, and test it.
+MASTERY_ADDITIVE = {"EFFECT_ADJUST_UNIT_STRENGTH_MODIFIER", "EFFECT_ATTACH_MODIFIERS", "EFFECT_CITY_ADJUST_WORKER_CAP",
+                    "EFFECT_PLAYER_GRANT_TRADITION_SLOTS"}
+MASTERY_CARRIED = {"EFFECT_PLAYER_ADJUST_SETTLEMENT_CAP"}
+MASTERY_SWITCH = {"EFFECT_ADJUST_UNIT_WATER_DAMAGE_PROTECTION", "EFFECT_GRANT_COMBAT_ADJACENCY", "EFFECT_PLAYER_ACTIVATE_VICTORY_POINT_TRACKER",
+                  "EFFECT_PLAYER_OPEN_ARCHAEOLOGY", "EFFECT_PLAYER_UNLOCK_PANTHEON", "EFFECT_UNIT_ADJUST_IGNORE_MOVEMENT_OBSTACLE"}
+MASTERY_ONCE = {"EFFECT_CITY_GRANT_UNIT", "EFFECT_PLAYER_GRANT_VICTORY_TRACKER_POINTS"}  # a grant, given once: left as it is
+MASTERY_TEXT = {"EFFECT_DO_NOTHING"}  # a line of text in the tree: left as it is
+
+
+def mastery_rows(sim) -> list[dict]:
+    """The KIND_MODIFIER unlock rows below the highest unlock depth of their node: the rows whose modifier a world
+    transition drops for a node at a higher depth."""
+    return [{"node": n, "modifier": t, "depth": int(d), "top": int(top)} for n, t, d, top in sim.db.execute(
+        "SELECT u.ProgressionTreeNodeType, u.TargetType, u.UnlockDepth, (SELECT MAX(x.UnlockDepth) FROM ProgressionTreeNodeUnlocks x "
+        "WHERE x.ProgressionTreeNodeType = u.ProgressionTreeNodeType) FROM ProgressionTreeNodeUnlocks u "
+        "WHERE u.TargetKind = 'KIND_MODIFIER' ORDER BY 1, 2") if int(d) < int(top)]
+
+
+def mastery_split_rule(sim, world: str, off: bool) -> tuple[list[str], list[ET.Element], list[dict]]:
+    """Rule 2n for one world: SQL lines, the copies' definitions, and one record per row at risk (for the build report,
+    the build check and scenarios/mastery_census.js). sim: the world as built so far (base game, DLC and the mod
+    without this rule). off: the negative control (--disable-rule mastery): records only."""
+    g = "{GameEffects}"
+    lines, defs, info, unknown = [], [], [], []
+    node_effects = defaultdict(list)  # node -> the effects of all its modifier unlock rows (any depth)
+    for n, t in sim.db.execute("SELECT ProgressionTreeNodeType, TargetType FROM ProgressionTreeNodeUnlocks WHERE TargetKind = 'KIND_MODIFIER'"):
+        d = modifier_definition(sim, t)
+        node_effects[n].append(d.get("effect") if d is not None else None)
+    for row in mastery_rows(sim):
+        el = modifier_definition(sim, row["modifier"])
+        if el is None:
+            raise SystemExit(f"world {world}, rule 2n: no definition found for the modifier of the unlock row {row}")
+        effect = el.get("effect")
+        kind = ("text" if effect in MASTERY_TEXT else "once" if effect in MASTERY_ONCE or el.get("run-once") == "true"
+                else "additive" if effect in MASTERY_ADDITIVE else "switch" if effect in MASTERY_SWITCH
+                else "carried" if effect in MASTERY_CARRIED else None)
+        if kind is None:
+            unknown.append(f"{row['node']} {row['modifier']}: {effect}")
+            continue
+        # alone: no other modifier unlock of the node has this effect (a scenario can then read the row's value by itself).
+        entry = {**row, "effect": effect, "kind": kind, "low": None, "high": None, "amount": (argument_values(el, "Amount") or [None])[0],
+                 "alone": node_effects[row["node"]].count(effect) == 1}
+        info.append(entry)
+        if kind not in ("additive", "switch") or off:
+            continue
+        node, depth = row["node"], row["depth"]
+        if row["top"] != depth + 1:
+            raise SystemExit(f"world {world}, rule 2n: {node} has unlocks {row['top'] - depth} depths above {row['modifier']} "
+                             "(the rule knows one depth above; extend it)")
+        base = f"{node.removeprefix('NODE_')}_{row['modifier']}"
+        high = copy.deepcopy(el)
+        high.set("id", f"CA_UNLOCK_D{depth + 1}_{base}")
+        defs.append(high)
+        entry["high"] = high.get("id")
+        target = row["modifier"]  # the target of the row at the row's depth, from which the hidden row takes its columns
+        if kind == "additive":
+            low = copy.deepcopy(el)
+            low.set("id", f"CA_UNLOCK_D{depth}_{base}")
+            low.attrib.pop("permanent", None)
+            reqs = next((ch for ch in low if c.strip_ns(ch.tag) == "OwnerRequirements"), None)
+            if reqs is None:
+                reqs = ET.Element(f"{g}OwnerRequirements")
+                low.insert(0, reqs)
+            elif reqs.attrib:
+                raise SystemExit(f"world {world}, rule 2n: {row['modifier']} has owner requirements with {reqs.attrib} (not a plain "
+                                 "'all' set: the rule cannot add its requirement)")
+            r = ET.SubElement(reqs, f"{g}Requirement", {"type": "REQUIREMENT_PLAYER_HAS_COMPLETED_PROGRESSION_TREE_NODE", "inverse": "true"})
+            ET.SubElement(r, f"{g}Argument", {"name": "ProgressionTreeNodeType"}).text = node
+            ET.SubElement(r, f"{g}Argument", {"name": "MinDepth"}).text = str(depth + 1)
+            defs.append(low)
+            entry["low"] = target = low.get("id")
+            lines.append(f"UPDATE ProgressionTreeNodeUnlocks SET TargetType = '{target}' WHERE ProgressionTreeNodeType = '{node}' "
+                         f"AND TargetKind = 'KIND_MODIFIER' AND TargetType = '{row['modifier']}' AND UnlockDepth = {depth};")
+        lines.append("INSERT INTO ProgressionTreeNodeUnlocks (ProgressionTreeNodeType, TargetKind, TargetType, UnlockDepth, Hidden, "
+                     "AIIgnoreUnlockValue, NotTraitType, RequiredGovernmentType, RequiredTraitType) "
+                     f"SELECT ProgressionTreeNodeType, TargetKind, '{entry['high']}', {depth + 1}, 1, 1, NotTraitType, RequiredGovernmentType, "
+                     f"RequiredTraitType FROM ProgressionTreeNodeUnlocks WHERE ProgressionTreeNodeType = '{node}' AND TargetType = '{target}';")
+    if unknown:
+        raise SystemExit(f"world {world}, rule 2n: modifier unlocks below their node's highest depth with an effect that the rule "
+                         f"does not know (add it to MASTERY_ADDITIVE, MASTERY_SWITCH, MASTERY_CARRIED, MASTERY_ONCE or MASTERY_TEXT in "
+                         f"build_mod.py, and test it): {unknown}")
+    if off:
+        return ["", "-- NEGATIVE CONTROL mastery: a node above an unlock row's depth loses that row's modifier at a world transition."], [], info
+    head = ["", "-- 2n. A node above an unlock row's depth keeps that row's modifier across a world transition (the engine",
+            "--     attaches again only the unlocks of the node's current depth): a hidden row at the next depth names a",
+            "--     copy. For an effect that counts twice when attached twice, the row itself names a copy that stops at",
+            "--     the next depth. Grants, text rows and the settlement cap (the engine carries it) are left."]
+    return head + lines, defs, info
+
+
+def check_mastery_rows(sim, world: str, info: list[dict]) -> None:
+    """The build check of rule 2n, on the world as the game loads it: every modifier unlock row below its node's highest
+    depth has its hidden row with the copy at the next depth (and, for an additive effect, names the copy that stops), or
+    is a row that the rule leaves on purpose (a grant, a text line)."""
+    have = {(n, t, int(d)) for n, t, d in sim.db.execute(
+        "SELECT ProgressionTreeNodeType, TargetType, UnlockDepth FROM ProgressionTreeNodeUnlocks WHERE TargetKind = 'KIND_MODIFIER'")}
+    kept = {(e["node"], e["low"] or e["modifier"]): e for e in info if e["high"]}  # by the row's target as it is now
+    left = {(e["node"], e["modifier"]) for e in info if e["kind"] in ("once", "text", "carried")}
+    bad = [f"{e['node']} {e['modifier']}: its rows {e['low'] or e['modifier']} (depth {e['depth']}) and {e['high']} (depth {e['depth'] + 1}) "
+           "are not both there" for e in kept.values()
+           if (e["node"], e["low"] or e["modifier"], e["depth"]) not in have or (e["node"], e["high"], e["depth"] + 1) not in have]
+    bad += [f"{e['node']} {e['modifier']}: an additive effect whose row was not changed to its copy" for e in info
+            if e["kind"] == "additive" and not e["low"]]
+    bad += [f"{r['node']} {r['modifier']} (depth {r['depth']} of {r['top']})" for r in mastery_rows(sim)
+            if (r["node"], r["modifier"]) not in kept and (r["node"], r["modifier"]) not in left]
+    if bad:
+        raise SystemExit(f"world {world}, rule 2n: modifier unlock rows that a world transition would drop for a node at a higher "
+                         f"depth: {bad}")
+
+
 # The proof of each rule (docs/testing.md, "Keeping the tests current"): the check or scenario that fails when the rule
 # breaks. The build stops when the rules SQL has a rule id ("-- 2i. ...") that is not here, so a new rule names its proof.
 RULE_PROOFS = {
@@ -1672,6 +1807,10 @@ RULE_PROOFS = {
     "2l": "project_achievements.js (once per game across a world transition; the triumph reads the tag); world_projects.js",
     "2m": "religious_units.js (Antiquity), religion_modern.js (removed at the Modern load, blocked there), religion_lagging.js "
           "(no Breakthrough needed in the Exploration world); RELOADUNITS (rule 2m removals named, others still fail)",
+    "2n": "mastery_unlocks.js (Currency's specialist cap and Shipbuilding's deep-ocean protection, mastered by research, across a "
+          "transition; a control run at depth 1); mastery_census.js (every kept row: the active copy by depth, in each world; the "
+          "values of specialist cap and tradition slots); update_051.js (a game saved with 0.5.1); the build stops on an effect it "
+          "does not know or a row left at risk (check_mastery_rows)",
     "3": "GOV-AGE (a government of another age: FAIL)",
     "4": "test setting",
     "5": "meet_distant.js (meeting flag); deep_ocean_turn.js and ocean_damage.js (ocean travel); BUILD and GATE (reports)",
@@ -1700,7 +1839,8 @@ DISABLE_RULES = {"2i": "unique units block their base units again", "6b": "no de
                  "oldres": "kept resources of an earlier age have no effects and the first age's text (up to 0.4.0)",
                  "worldproj": "final projects can be built in every world age (up to 0.4.0)",
                  "achieve": "achievement projects have no once-per-game record and their triumphs read 'completed in this world' (up to 0.4.0)",
-                 "religion": "religious units can be trained and are kept in every world age (up to 0.4.0)"}
+                 "religion": "religious units can be trained and are kept in every world age (up to 0.4.0)",
+                 "mastery": "a node above an unlock row's depth loses that row's modifier at a world transition (up to 0.5.1)"}
 
 
 def disabled_rules(args) -> set:
@@ -1921,6 +2061,7 @@ def main() -> None:
             b.catchup_items[value] = f"data/{b.w}/continuous-ages-catchup-{CATCHUP[value]}.sql"
             (OUT / b.catchup_items[value]).write_text(text, encoding="utf-8")
         check_xrefs(game, defs, b.w)
+        b.defs = defs  # rule 2n adds its copies below, after a first load of the built world
         write_xml(b.effects_xml(defs), OUT / "data" / b.w / "continuous-ages-effects.xml")
 
     (OUT / "text" / "en_us").mkdir(parents=True, exist_ok=True)
@@ -1957,6 +2098,34 @@ def main() -> None:
     (OUT / f"{MOD_ID}.modinfo").write_text(control_modinfo_xml(args.age_points) if args.control else
                                             modinfo_xml(builds, args.checks, args.fast_test, game), encoding="utf-8")
 
+    # Rule 2n works on each world's final unlock table (the base game, the DLC, the content of the other ages and the
+    # rules above): a first load of the built world gives it, and the rule's rows and copies are added to its files.
+    mastery_off = "mastery" in disabled_rules(args)
+    for b in builds:
+        b.mastery = []
+        if args.control:
+            continue
+        lines, new_defs, b.mastery = mastery_split_rule(validate(game, b.world), b.w, mastery_off)
+        sql = "\n".join(lines) + "\n"
+        check_rule_proofs(sql, b.w)
+        rules_file = OUT / "data" / b.w / "continuous-ages-rules.sql"
+        rules_file.write_text(rules_file.read_text(encoding="utf-8") + sql, encoding="utf-8")
+        if new_defs:
+            b.defs = b.defs + new_defs
+            check_xrefs(game, b.defs, b.w)
+            write_xml(b.effects_xml(b.defs), OUT / "data" / b.w / "continuous-ages-effects.xml")
+    print("unlock rows below their node's highest depth (rule 2n): " + "; ".join(
+        f"{b.w} {dict(Counter(e['kind'] if e['high'] or e['kind'] in ('once', 'text', 'carried') else 'not kept (negative control)' for e in b.mastery))}"
+        for b in builds))
+    if args.checks:
+        checks_js = OUT / "ui" / "ca-checks.js"
+        ms_marker = "const CA_MASTERY_SPLIT = {}; // CA_MASTERY_SPLIT (filled by build_mod.py)"
+        text = checks_js.read_text(encoding="utf-8")
+        if ms_marker not in text:
+            raise SystemExit("ca-checks.js: the CA_MASTERY_SPLIT line is missing")
+        checks_js.write_text(text.replace(ms_marker, "const CA_MASTERY_SPLIT = " + json.dumps({b.world: b.mastery for b in builds}) + ";"),
+                             encoding="utf-8")
+
     # Validate each world age: base modules + DLC + the mod, in load order.
     summary = []
     for b in builds:
@@ -1968,6 +2137,8 @@ def main() -> None:
                 break
             check = validate(game, b.world)
             new_fk = sorted(fk_set(check) - baseline_fk)
+        if not args.control and not mastery_off:
+            check_mastery_rows(check, b.w, b.mastery)
         trees = check.db.execute("SELECT ProgressionTree, COUNT(*) FROM ProgressionTreeNodes WHERE ProgressionTree "
                                  "IN ('TREE_TECHS_AQ','TREE_CIVICS_AQ_MAIN') GROUP BY ProgressionTree").fetchall()
         unclassified = sorted({t for _, t, k, _ in b.log["systems"] if k == "unclassified"})
@@ -2077,6 +2248,13 @@ def write_report(builds) -> None:
             src = NAME[b.text_preferred[e["tooltip"]]] if e["tooltip"] in b.text_preferred else "first age that has it, or this world"
             out.append(f"- Kept resource (rule 2j) {e['resource']}: last valid age {NAME[e['last']]}, effects "
                        f"{', '.join(m.get('id') for m in e['effects']) or 'none'}; tooltip {e['tooltip']} from {src}")
+        kept = [e for e in b.mastery if e["high"]]
+        out.append(f"- Modifier unlocks below their node's highest depth, kept across a transition by a hidden copy at the next depth "
+                   f"(rule 2n): {len(kept)} on {len({e['node'] for e in kept})} nodes: "
+                   + (", ".join(f"{e['node'].removeprefix('NODE_')} {e['modifier']} ({e['kind']})" for e in kept) or "none"))
+        out.append("- The same, left as they are (rule 2n): " + (", ".join(
+            f"{e['node'].removeprefix('NODE_')} {e['modifier']} ({e['kind'] if e['kind'] in ('once', 'text', 'carried') else 'not kept: negative control'})"
+            for e in b.mastery if not e["high"]) or "none"))
         out += [f"- Issue: {s}" for s in r["issue_samples"]] + [f"- Broken reference: {s}" for s in r["fk_samples"]]
         for key, title in [("trait_rows", "Trait-modifier rows left out"), ("dropped_rows", "Rows whose key exists (kept the world's)"),
                            ("system_types", "System types left with their age"), ("dangling", "Rows pointing to content not loaded"),

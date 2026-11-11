@@ -37,6 +37,14 @@ globalThis.caReplaceGaps = CA_REPLACE_GAPS; // for live scenarios (scenarios/rul
 // a legacy path). build_mod.py --checks writes the map into this line.
 const CA_WORLD_PROJECTS = {}; // CA_WORLD_PROJECTS (filled by build_mod.py)
 globalThis.caWorldProjects = CA_WORLD_PROJECTS; // for live scenarios (scenarios/world_projects.js)
+// Rule 2n: {world age: [{node, modifier, depth, top, effect, kind, low, high, amount, alone}]} of the modifier unlock rows
+// below their node's highest depth. "high" is the copy of the hidden row one depth above. kind "switch": the row still
+// names "modifier". kind "additive": the row names "low", a copy that stops at the next depth. Both are null in the
+// negative control (--disable-rule mastery). kind "once" (a grant), "text" and "carried" (the settlement cap: the engine
+// keeps the value) rows are left. "alone": no other modifier unlock of the node has the same effect. build_mod.py --checks
+// writes the map into this line.
+const CA_MASTERY_SPLIT = {}; // CA_MASTERY_SPLIT (filled by build_mod.py)
+globalThis.caMasterySplit = CA_MASTERY_SPLIT; // for live scenarios (scenarios/mastery_census.js)
 
 // Exploration constructibles, found by the Exploration tech or civic that unlocks them
 // (their Age column is set to the world age by the generator, so Age cannot tell).
