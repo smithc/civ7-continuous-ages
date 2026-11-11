@@ -95,6 +95,7 @@ replaces the game's transition script with a copy that has the reset steps remov
 | Units | Commanders are kept with their promotions (only commanders have promotions); other military units are remade as the new age's types, and units that the armies do not take back can be lost | Kept as they are: type and position; commanders with their promotions. Religious units are removed at the Modern load (rule 2m) |
 | Cities | All cities except the capital become towns | Cities stay cities |
 | Gold and influence | Capped | Not capped |
+| Settlement cap | Kept (each age has a minimum) | Kept, and it rises at each transition: techs and civics add their +1 again (known limit U-CAP-AGAIN, see [Masteries](#masteries)) |
 | Buildings and improvements | Kept; the base game's rules for older-age buildings apply | Kept; the same rules apply |
 | Old-age resources | Removed from the map | Stay on the map, with the effects of their last valid age |
 | Policies | The new age's trees replace the old ones | Every policy the civ has earned stays (see below) |
@@ -160,20 +161,25 @@ trees do not live across ages. In this mod they do.
   the first level only kept them.
 - **Now (rule 2n)** a hidden unlock at the second level names a copy of each such bonus. The copy is
   attached at the mastery, and again at every world load. For a bonus that would count twice when
-  attached twice (specialist cap, tradition slot, a combat strength bonus, the resource bonuses of the
-  Wheel), the first level names a copy that stops at the mastery, so the bonus counts once at every
-  level. For a bonus that is on or off (ocean protection, flanking, pantheon, archaeology, victory point
-  trackers), the first level is as in the base game. The build report lists the rows: 22 to 24 per world,
-  on about 20 techs and civics.
+  attached twice (specialist cap, tradition slot, a combat strength bonus), the first level names a copy
+  that stops at the mastery, so the bonus counts once at every level. The copy has the text and the icon
+  of the original in the tree. For a bonus that is on or off (ocean protection, flanking, pantheon,
+  archaeology, victory point trackers), the first level is as in the base game. The build report lists
+  the rows: 21 to 23 per world, on about 20 techs and civics.
 - **Not changed:**
-  - Grants (a free Merchant, Army Commander or Settler; the science points of Social Class) are given once.
+  - Grants (a free Merchant, Army Commander or Settler; the science points of Social Class) are left as
+    they are. Whether a civ at the first level gets one again at a transition is an open check
+    ([Known limits](known-limits.md#open-checks)).
   - The **settlement cap** is the opposite case. The game carries the cap number across a transition by
     itself (the base game gives each age a minimum, not a reset). So a mastered tech keeps its +1 without
-    any bonus attached. A tech at its first level gets its bonus attached again at each load, on top of
-    the carried number: +1 settlement cap again for each such tech or civic, at each transition. This is
-    a known limit (U-CAP-AGAIN in [Known limits](known-limits.md#engine-limits)), in every version so far.
-- Proof: `scenarios/mastery_unlocks.js` (normal research), `scenarios/mastery_census.js` (every row, both
-  transitions) and `scenarios/update_051.js` (a game saved with 0.5.1); see [Testing](testing.md). A game
+    any bonus attached. An unlock at the level the civ has now is attached again at each load, on top of
+    the carried number: a tech with no mastery (Irrigation), a tech at its first level (Feudalism), or a
+    +1 that the mastery gives (Mass Production). So each civ gains settlement cap at each transition: 2
+    to 5 and 5 to 10 in one whole game. This is a known limit (U-CAP-AGAIN in
+    [Known limits](known-limits.md#engine-limits)), in every version so far.
+- Proof: `scenarios/mastery_unlocks.js` (normal research), `scenarios/mastery_census.js` (every row on the
+  joined trees, both transitions) and `scenarios/update_051.js` (a game saved with 0.5.1); see
+  [Testing](testing.md). A game
   saved with 0.5.1 gets the lost bonuses back at its next world transition
   ([Known limits](known-limits.md#updating-a-game-in-progress)).
 

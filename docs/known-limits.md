@@ -26,7 +26,7 @@ reset of a civ's progress except where noted.
 | **U-LEVY** | Independent powers research the joined tree at their own pace and can field later-age units, which a major civ can get by a levy before its own Breakthrough. | Rare (seen once, in a test with cheap techs). |
 | **U-TOWN-PURCHASE** | Base-game behavior: a town that may buy buildings of a tag (a town focus such as Factory Town or Fort Town, Augustus's ability, the civ abilities of Carthage, England, Gaul and Joseon, an Antiquity crisis story; `EFFECT_ADJUST_TOWN_CAN_PURCHASE_TAGGED_CONSTRUCTIBLES`) can buy a building of that tag without the building's own tech or civic. The engine names the missing unlock but allows the purchase. The base game has this within one age; the mod loads every age's content in every world, so a town can also buy buildings of a later age before its civ's Breakthrough. Evidence (game 1.5.1, scenario `town_purchase.js`): Augustus's new town bought the Amphitheater (Engineering), the Pavilion and the Kiln (Exploration techs) and the Opera House (Modern tech) at Antiquity turn 3, and the capital was refused each one (20261110-131632-w1); a town with no tag source (Hatshepsut) could not buy them (20261110-131714-w1); with the control build (base-game rules) Augustus's town bought the Amphitheater without Engineering (20261110-131854-w1). In run 20261110-114253-w1, Egypt (tech age Exploration) bought a Port (Steam Engine) in a Factory Town in the Modern world. The game has no effect that blocks one building for one player (the executable's strings have `EFFECT_PLAYER_DISABLE_BUILD_UNIT` only for units). | Towns with such a source can buy some later-age buildings early, with gold. The run analysis lists such purchases as this known limit: a town (no production row in that world up to the turn after the purchase; never turn 1) buys a building with a tag that a town's tagged purchase names. |
 | **U-INDEPENDENT-TIER** | The base game replaces every independent and city-state at each world transition (see [Mechanics](mechanics.md#world-systems)). Independents never research (0 nodes all game, mod and control build), so their own techs do not choose their units: they get the units that enough major civs have unlocked. Evidence (2026-11-10): in the mod's Exploration world, independents made Phalanxes until a second civ of six passed its Exploration Breakthrough (about turn 10), and Swordsmen, Heavy Archers and Cogs from their next units on (turn 12; run 20261110-114253-w1, `Independents.csv`); in a live game, Bronze and Iron Working granted to slot 0 alone changed nothing in 40 turns (worker 4). The exact share is not known. A world's starter units need no tech in the base game, but the Breakthrough in the mod. First-turn `MINORS` records of game 1.5.1: Exploration world, mod `PHALANX, SCOUT`, control `SCOUT, SWORDSMAN`; Modern world, mod `MAN_AT_ARMS, SCOUT`, control `LINE_INFANTRY, SCOUT`; Rifleman at turn 80 in the mod, 60 in the control (runs 20261110-114253-w1 and -w2). | Early in a later world, independents are weaker than in the base game, until enough civs pass the world's Breakthrough. Open: a fix that gives independents the world's starter units (planned for 0.6.0). |
-| **U-CAP-AGAIN** | The game carries a civ's settlement cap across a world transition by itself (the base game gives each age a minimum, `TRAIT_INITIAL_SETTLEMENT_CAP`: 8 and 16; it does not reset the cap). In this mod the trees stay completed, and at each load the game attaches again the modifier unlocks of each node's current depth. So a settlement cap unlock (`EFFECT_PLAYER_ADJUST_SETTLEMENT_CAP`, +1) at its node's current depth is added again at each transition, on top of the carried number. A cap unlock of depth 1 on a mastered node is not attached again: that node counts once. Evidence (2026-11-11): `mastery_unlocks.js`, Feudalism at depth 1: cap +1 at the transition (20261111-132017-w1, 133313-w1); mastered: +0 (20261111-132933-w1). `mastery_census.js`: the cap rose by exactly 1 at each of the two transitions in four runs, with one cap unlock at its node's depth in each (Hegemony at depth 1, or the mastery unlock of Mass Production; 20261111-134129-w1, 134323-w1, 134558-w1, 134750-w1), and by 7 and 8 per transition in earlier runs with 7 and 8 such unlocks (20261111-130702-w1, 130900-w1). Found while rule 2n was tested; rule 2n leaves these rows as they are. | Each civ gains settlement cap at each world transition: +1 for each cap unlock at its node's current depth. In every version so far. Open: a fix (not looked for yet). |
+| **U-CAP-AGAIN** | The game carries a civ's settlement cap across a world transition by itself (the base game gives each age a minimum, `TRAIT_INITIAL_SETTLEMENT_CAP`: 8 and 16; it does not reset the cap). In this mod the trees stay completed, and at each load the game attaches again the modifier unlocks of each node's current depth. So a settlement cap unlock (`EFFECT_PLAYER_ADJUST_SETTLEMENT_CAP`, +1) at its node's current depth is added again at each transition, on top of the carried number. A cap unlock of depth 1 on a mastered node is not attached again: that node counts once. The joined trees have 14 such +1 unlocks: 3 on nodes with no mastery (Irrigation, Entertainment, Organized Military), 7 at depth 1 of a node with a mastery, and 4 that the mastery itself gives (Colonialism, Society, Mass Production, Urbanization); civ trees and attribute trees have more. Evidence (2026-11-11): `mastery_unlocks.js`, Feudalism at depth 1: cap +1 at the transition (20261111-143139-w1, 145002-w1); mastered: +0 (20261111-142758-w1, 144620-w1). `mastery_census.js`: the cap rose by exactly 1 at each of the two transitions in four runs, with one cap unlock at its node's depth in each (Hegemony at depth 1, or the mastery unlock of Mass Production; 20261111-144129-w1, 144323-w1, 145439-w1, 145631-w1), and by 8 and 7 per transition in two earlier runs with 8 and 7 such unlocks (20261111-130702-w1 and 130900-w1; these ran a probed form of rule 2n with cap copies). Whole games (settlement cap at the age's end and on the next world's first turn, `AGEEND` and `STATE` records): in the 0.5.1 game 20261110-114253-w1 the six civs gained 2 to 5 at the Exploration transition and 5 to 10 at the Modern transition; in the base-game control 20261110-114253-w2 a civ got the age's minimum (8, 16) or +1. The whole games do not separate the sources of the gain. Not tested: are other sources of settlement cap (attribute nodes, traditions, civ abilities) also applied again? Found while rule 2n was tested; rule 2n leaves these unlocks as they are. | Each civ gains settlement cap at each world transition: +1 for each cap unlock at its node's current depth, which is several per transition in a whole game. It favours every civ, and more so a civ with many cap techs and civics. In every version so far. Open: a decision and a fix (see [Open checks](#open-checks)). |
 
 ## Updating a game in progress
 
@@ -34,7 +34,7 @@ reset of a civ's progress except where noted.
 
 Rule 2n keeps the first-level bonuses of a mastered tech or civic across a world transition (see
 [Mechanics](mechanics.md#masteries)). It works through the unlocks of the tech itself, so a game saved with 0.5.1
-gets it step by step (scenario `update_051.js`, 20261111-133641-w1, with a save made under the rules of 0.5.1):
+gets it step by step (scenario `update_051.js`, 20261111-143506-w1, with a save made under the rules of 0.5.1):
 
 - **A tech or civic that the civ researches or masters after the update works at once.** Tested: Shipbuilding
   researched after the update protects ships, and its mastery keeps the protection.
@@ -43,11 +43,12 @@ gets it step by step (scenario `update_051.js`, 20261111-133641-w1, with a save 
   Modern world (which has none). The saved game holds the attached bonuses, and a load does not attach new ones.
   Tested with another form of the fix (run 20261111-121754-w1: nothing came back at the load); for rule 2n itself it is
   inferred from the same engine fact, not run.
-- **One bonus can count twice until the next world transition:** a specialist cap, a tradition slot, the Wheel's
-  resource bonuses or the combat bonus of the Pirate Republic civic, when the civ researched the first level before the
-  update and masters the tech after it. The old bonus stays attached in the saved game, and the mastery adds the copy.
+- **One bonus can count twice until the next world transition:** a specialist cap, a tradition slot or the combat bonus
+  of the Pirate Republic civic, when the civ researched the first level before the update and masters the tech after it. The old bonus stays attached in the saved game, and the mastery adds the copy.
   Tested: Currency, +1 specialist cap once more, gone after the transition.
 - The settlement cap does not change with the update (U-CAP-AGAIN above).
+- `tools/savecompat.py v0.5.1` (2026-11-11): compatible, no saved id removed. The rule adds 33 to 37 modifiers per world
+  and changes the target of 12 to 14 unlock rows.
 
 ### From 0.2.1 to 0.3.0
 
@@ -160,23 +161,40 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
 
 - **One-time grants of a tech or civic at each world load (found with rule 2n, 2026-11-11).** At a world load the game
   attaches again the modifier unlocks of each node's current depth (that is how U-CAP-AGAIN adds settlement cap again).
-  Five such unlocks on nodes with a mastery are grants: a free Merchant (Code of Laws), a free Army Commander (Discipline), a free Settler
-  (Navigation, Pirate Republic), the gold buildings tracker of Currency, and the science points of Social Class. Not
-  known: does a civ with the node at its first level get the grant again at each transition? Rule 2n leaves these
-  rows. Next: a scenario that counts the units before and after a transition.
-- **Rule 2n: effects with no value test.** The scenarios read the value of specialist cap, tradition slots and
-  deep-ocean protection. For the other kept effects (pantheon, unit flanking, archaeology, victory point trackers, the
-  Wheel's resource bonuses, "deep ocean does not end the move" after a transition, the Pirate Republic combat bonus)
-  the census shows only that the copy is active, and the 5 to 7 rows per world on civ trees were not run in a game. AI
-  civs use the same rows; no whole game was checked for them yet.
+  Many unlocks are grants, on nodes with and without a mastery: free units (a Merchant from Code of Laws, an Army
+  Commander from Discipline), great works (a Codex or Relic from 16 masteries), victory points (15 unlocks, for example
+  the science points of Shipbuilding's mastery and of Social Class), one population (Urbanization). Not known: does a
+  civ get such a grant again at each transition? One indication against it for units: in the census run
+  20261111-134323-w1, slot 0 had Code of Laws at its first level and one Merchant at both loads (`RELOADUNITS`), so the
+  first load gave no second Merchant. The unit grants are "run once" modifiers. The victory point unlocks are not (as
+  the settlement cap unlock is not): they are the likely repeaters. Rule 2n leaves all grants as they are. Next: a
+  scenario that reads the science points of the next age before and after a transition, with Social Class at its first
+  level.
+- **The settlement cap at a transition (U-CAP-AGAIN): a decision and a fix.** The limit is in every version, and whole
+  games show +2 to +5 and +5 to +10 per civ at the two transitions (see [Engine limits](#engine-limits)). Open: does the
+  mod want it (it was not designed), which sources add to it (only tree unlocks were varied), and how to stop an unlock
+  from being attached again (not looked for yet).
+- **Rule 2n: effects with no value test.** The scenarios read the value of specialist cap, tradition slots, deep-ocean
+  protection and "deep ocean does not end the move". For the other kept effects on the joined trees (pantheon, unit
+  flanking, archaeology, victory point trackers) the census shows only that the copy is active. For an on/off effect the original and the copy are both attached in the world of the mastery;
+  that this does no harm is tested for the deep-ocean protection only. The 5 to 7 rows per world on civ trees (among
+  them the Pirate Republic combat bonus) were not run in a game. Also not run: a game without the DLC of such a civ
+  tree (Assyria, Pirate Republic). The mod then still defines the copies, and a copy's requirement names a tech or
+  civic that the game does not load; the offline check loads every DLC set with no issue, and no unlock names such a
+  copy. The copies are made at build time from the game's data, as all content of other ages is.
 - **A crash when the AI plays a civ with many granted nodes (2026-11-11).** In `mastery_census.js`, slot 0 had every
   node of rule 2n's rows by debug grants (also Modern nodes, without their prerequisites). When the AI then played slot
   0 in the Exploration world, the game crashed as the civ completed a node (20261111-125357-w1; the same without rule
   2n, 20261111-125845-w1; dumps `2D65EF71DECAD46316` and `716F0AD5685EBDA716`: an access violation under "Progression
-  Tree Node Depth Unlocked", "Attaching Modifier", in a function that reads `UnlockConfigurationValues`). The node and
-  the modifier are not known. The grants are not a state of normal play, so it may be a test artifact; a civ far ahead
-  with Modern nodes in the Exploration world is normal play. Next: the census with `--set CAAuto=1`, which logs the
-  research in progress.
+  Tree Node Depth Unlocked", "Attaching Modifier", in a function that reads `UnlockConfigurationValues` and names
+  `EndAgeNextTurn` and `AgeOver`). A third run with `--set CAAuto=1` logged the research in progress (20261111-135548-w1,
+  dump `FCE73B4B68DD7C4B16`): at the crash slot 0 was about to complete the Modern **Future Civic** (its only
+  prerequisite is Hegemony, which the census grants). Future Civic unlocks `MOD_MO_FUTURE_CIVIC_AGE_PROGRESS`
+  (`EFFECT_PLAYER_ADJUST_AGE_PROGRESS`). Two direct tests did not crash: slot 0, played by the script and not by the
+  AI, researched Future Civic in the Exploration world with Hegemony granted. With the normal age length it completed,
+  the age progress rose by 10 points, and the game played 23 more turns (20261111-140040-w1); with a 12-point age it
+  completed and the age ended in its normal way (20261111-140352-w1). So far the crash needs the AI in the human slot
+  with the census grants, which is a test condition. The cause is not known.
 - **A later-age legacy civ's unique building before the civ's Breakthrough (regression 2026-11-07).** In the
   Time-Tested run 20261107-221556-w6, Inca (played from the Antiquity world, kept its civ into the Modern world, civ
   age Exploration) started Mexico's unique building Portal de Mercaderes in the Modern world on turn 18 (LEAK). Its

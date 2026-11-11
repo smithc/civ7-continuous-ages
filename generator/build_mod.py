@@ -1296,6 +1296,13 @@ def modinfo_xml(builds: list[WorldBuild], checks: bool, fast, game: Path) -> str
 				</UIScripts>
 			</Actions>
 		</ActionGroup>
+		<ActionGroup id="ca-icons" scope="game" criteria="always">
+			<Actions>
+				<UpdateIcons>
+					<Item>{MASTERY_ICONS}</Item>
+				</UpdateIcons>
+			</Actions>
+		</ActionGroup>
 		<ActionGroup id="ca-transition" scope="game" criteria="always">
 			<Actions>
 				<ImportFiles>
@@ -1680,13 +1687,38 @@ def kept_resources(sims: dict) -> dict[str, list[dict]]:
 #            20261111-130218-w1 to 130900-w1: the cap rose at each transition by the number of cap rows at their node's
 #            depth, and by nothing else).
 # An effect in no set stops the build (a game patch or a DLC added one): decide its set, and test it.
-MASTERY_ADDITIVE = {"EFFECT_ADJUST_UNIT_STRENGTH_MODIFIER", "EFFECT_ATTACH_MODIFIERS", "EFFECT_CITY_ADJUST_WORKER_CAP",
-                    "EFFECT_PLAYER_GRANT_TRADITION_SLOTS"}
+MASTERY_ADDITIVE = {"EFFECT_ADJUST_UNIT_STRENGTH_MODIFIER", "EFFECT_CITY_ADJUST_WORKER_CAP", "EFFECT_PLAYER_GRANT_TRADITION_SLOTS"}
 MASTERY_CARRIED = {"EFFECT_PLAYER_ADJUST_SETTLEMENT_CAP"}
 MASTERY_SWITCH = {"EFFECT_ADJUST_UNIT_WATER_DAMAGE_PROTECTION", "EFFECT_GRANT_COMBAT_ADJACENCY", "EFFECT_PLAYER_ACTIVATE_VICTORY_POINT_TRACKER",
                   "EFFECT_PLAYER_OPEN_ARCHAEOLOGY", "EFFECT_PLAYER_UNLOCK_PANTHEON", "EFFECT_UNIT_ADJUST_IGNORE_MOVEMENT_OBSTACLE"}
-MASTERY_ONCE = {"EFFECT_CITY_GRANT_UNIT", "EFFECT_PLAYER_GRANT_VICTORY_TRACKER_POINTS"}  # a grant, given once: left as it is
+# A grant: left as it is. So is a run-once modifier of an additive or switch effect (a tracker switched on once). Whether
+# the engine gives a grant again at a world load is an open check (docs/known-limits.md).
+MASTERY_ONCE = {"EFFECT_CITY_GRANT_UNIT", "EFFECT_PLAYER_GRANT_VICTORY_TRACKER_POINTS"}
 MASTERY_TEXT = {"EFFECT_DO_NOTHING"}  # a line of text in the tree: left as it is
+
+
+def mastery_kind(sim, el: ET.Element, above: tuple = ()) -> str | None:
+    """The kind of a modifier for rule 2n (the sets above), or None for an effect that the rule does not know.
+    A run-once modifier of an additive or switch effect is "once" (a tracker switched on once). A modifier that attaches
+    others (EFFECT_ATTACH_MODIFIERS) takes the kind of what it attaches: "once" when all of them are grants or run-once
+    (the Wheel: two trackers switched on once), "additive" when all of them last (a second attachment would count an
+    additive one twice), and None when one of them is unknown or when grants and lasting effects are mixed."""
+    effect = el.get("effect")
+    if effect == "EFFECT_ATTACH_MODIFIERS":
+        kinds = set()
+        for mid in argument_values(el, "ModifierId"):
+            child = modifier_definition(sim, mid) if mid not in above else None
+            kinds.add(mastery_kind(sim, child, above + (el.get("id"),)) if child is not None else None)
+        kinds.discard("text")
+        if not kinds or None in kinds or "carried" in kinds or (kinds - {"once"} and "once" in kinds):
+            return None
+        return "once" if kinds == {"once"} else "additive"
+    kind = ("text" if effect in MASTERY_TEXT else "once" if effect in MASTERY_ONCE
+            else "additive" if effect in MASTERY_ADDITIVE else "switch" if effect in MASTERY_SWITCH
+            else "carried" if effect in MASTERY_CARRIED else None)
+    if el.get("run-once") == "true" and kind in ("additive", "switch"):
+        kind = "once"
+    return kind
 
 
 def mastery_rows(sim) -> list[dict]:
@@ -1713,11 +1745,10 @@ def mastery_split_rule(sim, world: str, off: bool) -> tuple[list[str], list[ET.E
         if el is None:
             raise SystemExit(f"world {world}, rule 2n: no definition found for the modifier of the unlock row {row}")
         effect = el.get("effect")
-        kind = ("text" if effect in MASTERY_TEXT else "once" if effect in MASTERY_ONCE or el.get("run-once") == "true"
-                else "additive" if effect in MASTERY_ADDITIVE else "switch" if effect in MASTERY_SWITCH
-                else "carried" if effect in MASTERY_CARRIED else None)
-        if kind is None:
-            unknown.append(f"{row['node']} {row['modifier']}: {effect}")
+        kind = mastery_kind(sim, el)
+        if kind is None:  # also for a run-once modifier: a new effect is looked at before it is left
+            unknown.append(f"{row['node']} {row['modifier']}: {effect}"
+                           + (f" of {argument_values(el, 'ModifierId')}" if effect == "EFFECT_ATTACH_MODIFIERS" else ""))
             continue
         # alone: no other modifier unlock of the node has this effect (a scenario can then read the row's value by itself).
         entry = {**row, "effect": effect, "kind": kind, "low": None, "high": None, "amount": (argument_values(el, "Amount") or [None])[0],
@@ -1743,8 +1774,8 @@ def mastery_split_rule(sim, world: str, off: bool) -> tuple[list[str], list[ET.E
             if reqs is None:
                 reqs = ET.Element(f"{g}OwnerRequirements")
                 low.insert(0, reqs)
-            elif reqs.attrib:
-                raise SystemExit(f"world {world}, rule 2n: {row['modifier']} has owner requirements with {reqs.attrib} (not a plain "
+            elif reqs.attrib and reqs.attrib != {"type": "REQUIREMENTSET_TEST_ALL"}:
+                raise SystemExit(f"world {world}, rule 2n: {row['modifier']} has owner requirements with {reqs.attrib} (not an "
                                  "'all' set: the rule cannot add its requirement)")
             r = ET.SubElement(reqs, f"{g}Requirement", {"type": "REQUIREMENT_PLAYER_HAS_COMPLETED_PROGRESSION_TREE_NODE", "inverse": "true"})
             ET.SubElement(r, f"{g}Argument", {"name": "ProgressionTreeNodeType"}).text = node
@@ -1770,6 +1801,44 @@ def mastery_split_rule(sim, world: str, off: bool) -> tuple[list[str], list[ET.E
     return head + lines, defs, info
 
 
+def modifier_icons(game: Path, ids: set[str]) -> dict[str, str]:
+    """The icon id of each modifier in `ids`, from the icon files of the base game and the DLC: the OtherID of its
+    IconAliases row, or its own id when it has an IconDefinitions row. The tree screens take a modifier unlock's icon by
+    the modifier's id (UI.getIconURL(TargetType), else the generic bonus icon), so a copy with a new id needs an alias."""
+    out = {}
+    files = sorted((game / "Base" / "modules").glob("*/data/icons/*.xml")) + sorted((game / "DLC").glob("*/modules/data/icons/*.xml"))
+    for f in files:
+        try:
+            root = ET.parse(f).getroot()
+        except ET.ParseError:
+            continue
+        for table in root:
+            tag = c.strip_ns(table.tag)
+            for row in table:
+                rid = row.get("ID") or next((ch.text for ch in row if c.strip_ns(ch.tag) == "ID"), None)
+                if rid not in ids:
+                    continue
+                if tag == "IconAliases" and row.get("OtherID"):
+                    out[rid] = row.get("OtherID")
+                elif tag == "IconDefinitions":
+                    out.setdefault(rid, rid)
+    return out
+
+
+MASTERY_ICONS = "data/icons/continuous-ages-icons.xml"
+
+
+def mastery_icons_xml(game: Path, builds) -> tuple[str, int, int]:
+    """Rule 2n: the icon aliases of the copies that an unlock row names now (the "low" copies; the hidden rows show no
+    icon). Returns the file's text, the number of aliases and the number of copies."""
+    copies = {e["low"]: e["modifier"] for b in builds for e in getattr(b, "mastery", []) if e["low"]}
+    icons = modifier_icons(game, set(copies.values()))
+    rows = [f'\t\t<Row ID="{low}" OtherID="{icons[orig]}"/>' for low, orig in sorted(copies.items()) if orig in icons]
+    text = ('<?xml version="1.0" encoding="utf-8"?>\n<!-- Generated by build_mod.py (rule 2n). Do not edit. -->\n<Database>\n\t<IconAliases>\n'
+            + "\n".join(rows) + ("\n" if rows else "") + "\t</IconAliases>\n</Database>\n")
+    return text, len(rows), len(copies)
+
+
 def check_mastery_rows(sim, world: str, info: list[dict]) -> None:
     """The build check of rule 2n, on the world as the game loads it: every modifier unlock row below its node's highest
     depth has its hidden row with the copy at the next depth (and, for an additive effect, names the copy that stops), or
@@ -1783,6 +1852,8 @@ def check_mastery_rows(sim, world: str, info: list[dict]) -> None:
            if (e["node"], e["low"] or e["modifier"], e["depth"]) not in have or (e["node"], e["high"], e["depth"] + 1) not in have]
     bad += [f"{e['node']} {e['modifier']}: an additive effect whose row was not changed to its copy" for e in info
             if e["kind"] == "additive" and not e["low"]]
+    bad += [f"{e['node']} {e['modifier']}: the copy {mid} has no definition in the loaded world" for e in info
+            for mid in (e["low"], e["high"]) if mid and mid not in sim.modifiers]
     bad += [f"{r['node']} {r['modifier']} (depth {r['depth']} of {r['top']})" for r in mastery_rows(sim)
             if (r["node"], r["modifier"]) not in kept and (r["node"], r["modifier"]) not in left]
     if bad:
@@ -1807,10 +1878,11 @@ RULE_PROOFS = {
     "2l": "project_achievements.js (once per game across a world transition; the triumph reads the tag); world_projects.js",
     "2m": "religious_units.js (Antiquity), religion_modern.js (removed at the Modern load, blocked there), religion_lagging.js "
           "(no Breakthrough needed in the Exploration world); RELOADUNITS (rule 2m removals named, others still fail)",
-    "2n": "mastery_unlocks.js (Currency's specialist cap and Shipbuilding's deep-ocean protection, mastered by research, across a "
-          "transition; a control run at depth 1); mastery_census.js (every kept row: the active copy by depth, in each world; the "
-          "values of specialist cap and tradition slots); update_051.js (a game saved with 0.5.1); the build stops on an effect it "
-          "does not know or a row left at risk (check_mastery_rows)",
+    "2n": "mastery_unlocks.js (Currency's specialist cap, Shipbuilding's deep-ocean protection and its move across deep ocean, "
+          "mastered by research, across a transition; a control run at depth 1); mastery_census.js (every kept row on the joined "
+          "trees: the active copy by depth, in each world; the values of specialist cap and tradition slots; the copies' icons); "
+          "update_051.js (a game saved with 0.5.1); the build stops on an effect it does not know or a row left at risk "
+          "(check_mastery_rows)",
     "3": "GOV-AGE (a government of another age: FAIL)",
     "4": "test setting",
     "5": "meet_distant.js (meeting flag); deep_ocean_turn.js and ocean_damage.js (ocean travel); BUILD and GATE (reports)",
@@ -2117,6 +2189,11 @@ def main() -> None:
     print("unlock rows below their node's highest depth (rule 2n): " + "; ".join(
         f"{b.w} {dict(Counter(e['kind'] if e['high'] or e['kind'] in ('once', 'text', 'carried') else 'not kept (negative control)' for e in b.mastery))}"
         for b in builds))
+    if not args.control:  # the modinfo names the file: it is written also when it has no row (the negative control)
+        icons_text, aliases, copies = mastery_icons_xml(game, builds)
+        (OUT / MASTERY_ICONS).parent.mkdir(parents=True, exist_ok=True)
+        (OUT / MASTERY_ICONS).write_text(icons_text, encoding="utf-8")
+        print(f"icon aliases for the copies that unlock rows name (rule 2n): {aliases} of {copies} copies (the others have no icon of their own)")
     if args.checks:
         checks_js = OUT / "ui" / "ca-checks.js"
         ms_marker = "const CA_MASTERY_SPLIT = {}; // CA_MASTERY_SPLIT (filled by build_mod.py)"

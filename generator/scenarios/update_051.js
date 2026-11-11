@@ -61,10 +61,13 @@ async function shipOnOcean(type, skip = 0) {
   return null;
 }
 const s0 = { world, turn: Game.turn, human: Players.get(me).isHuman, currency: depth(CURRENCY), shipbuilding: depth(SHIPBUILDING), worker: worker(),
-  rows: { cur: [cur.low, cur.high], ship: [ship.low, ship.high] }, active: has(active()) };
+  rows: { cur: [cur.low, cur.high], ship: [ship.low, ship.high] }, active: has(active()),
+  // the game's own unlock table has the rule's rows (not only the build's list): Currency names its copy at depth 1, and both hidden rows are at depth 2
+  inDatabase: [[CURRENCY, cur.low, 1], [CURRENCY, cur.high, 2], [SHIPBUILDING, ship.high, 2], [SHIPBUILDING, WATER, 1]].map(([n, t, d]) =>
+    Array.from(GameInfo.ProgressionTreeNodeUnlocks).some((u) => u.ProgressionTreeNodeType === n && u.TargetType === t && u.UnlockDepth === d)) };
 expect("control: the 0.5.1 save loaded with this build (Antiquity, slot 0 human, Currency 1, no Shipbuilding, rule 2n's rows in the database)",
   world === "AGE_ANTIQUITY" && s0.human && s0.currency === 1 && s0.shipbuilding === 0 && cur.kind === "additive" && !!cur.low && !!cur.high
-  && ship.kind === "switch" && !ship.low && !!ship.high, s0);
+  && ship.kind === "switch" && !ship.low && !!ship.high && s0.inDatabase.every((x) => x === true), s0);
 expect("control: Currency's original modifier, attached under 0.5.1, is still active (and no copy)", s0.active.original && !s0.active.curLow && !s0.active.curHigh, s0.active);
 // Control (rule 6b), and the research of Shipbuilding after the update.
 const cogA = await shipOnOcean("UNIT_COG", 0);
@@ -96,8 +99,8 @@ expect("known limit: Currency mastered after the update: its original modifier (
   cur2.depth === 2 && s3.original && s3.curHigh && worker() === workerBefore + 1, { workerBefore, workerNow: worker(), cur2, active: s3 });
 const m = Game.AgeProgressManager;
 const left = () => m.getMaxAgeProgressionPoints() - m.getCurrentAgeProgressionPoints();
-for (let i = 0; i < 90 && left() > 3; i++) await caLive.advance(1);
-for (let i = 0; i < 12 && left() > 0; i++) { try { await caLive.endTurn(60000); } catch (e) { if (left() >= 2) await caLive.advance(1); } }
+// Slot 0 ends its own turns to the age's end (no AI research: the specialist cap check of phase 2 needs the same nodes).
+for (let i = 0; i < 60 && left() > 0; i++) { try { await caLive.endTurn(60000); } catch (e) { /* the request is sent again */ } }
 const end = { worker: worker(), currency: depth(CURRENCY), shipbuilding: depth(SHIPBUILDING), turn: Game.turn };
 expect("the age is at its end, with both nodes at depth 2", left() <= 0 && end.currency === 2 && end.shipbuilding === 2, { left: left(), end });
 setInterval(() => { if (Players.get(me)?.isTurnActive) GameContext.sendTurnComplete(); }, 3000);  // ends with the page

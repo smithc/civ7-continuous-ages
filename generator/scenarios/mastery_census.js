@@ -10,6 +10,10 @@
 // Values, in the world of the grants, for the additive effects that the UI can read (specialist cap of the capital,
 // tradition slots): one node each gives its amount at the row's depth and no more at the mastery. Each record also has
 // the settlement cap, the specialist cap and the tradition slots, to compare runs with and without the rule.
+//   --set CAValues=6x4x8x5      the capital's specialist cap and the tradition slots that the checks expect in the
+//                               Exploration world and in the Modern world (the values of 20261111-134129-w1 and
+//                               134323-w1; without the rule and with mastered nodes they were 1, 2, 3, 3). Without it
+//                               the value checks fail (they cannot run).
 //   --set CAMaster=1 (default)  every node to its highest depth: after a transition the "high" copies carry the effects.
 //   --set CAMaster=0            every node to the row's depth only (the AI plays slot 0 near the age's end and can master
 //                               some nodes; the check reads each node's depth when it runs).
@@ -22,7 +26,7 @@ const MASTER = Number(Automation.getParameter("CurrentTest", "CAMaster", 1)) !==
 const checks = [];
 const expect = (name, ok, detail = {}) => { checks.push({ name, ok, detail }); caLive.log({ scenario: "mastery_census", phase: 1, name, ok, detail }); };
 const settle = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
-const depth = (n) => Game.ProgressionTrees.getNode(me, GameInfo.ProgressionTreeNodes.lookup(n)?.$hash)?.depthUnlocked ?? 0;
+const depth = (n) => { const d = GameInfo.ProgressionTreeNodes.lookup(n); return d ? (Game.ProgressionTrees.getNode(me, d.$hash)?.depthUnlocked ?? 0) : -1; };  // -1: this world has no such node
 const short = (s) => String(s).replace(/^NODE_/, "");
 const world = GameInfo.Ages.lookup(Game.age)?.AgeType;
 const all = globalThis.caMasterySplit ?? {};
@@ -40,10 +44,14 @@ const values = () => ({ settlementCap: Players.get(me).Stats?.settlementCap, wor
 // The census of this world: the rows of the nodes that slot 0 has at the row's depth or above.
 const census = () => {
   const active = new Set(Players.get(me).Modifiers.getModifiers().map((m) => GameEffects.getModifierDefinitionFromTypeId(m.modifierType)?.ID));
-  const out = { rows: rows.length, covered: 0, atRowDepth: 0, above: 0, bad: [], uncovered: [] };
+  const out = { rows: rows.length, covered: 0, atRowDepth: 0, above: 0, bad: [], uncovered: [], joinedUncovered: [] };
   for (const e of rows) {
     const has = depth(e.node);
-    if (has < e.depth) { out.uncovered.push(`${short(e.node)} ${e.modifier}`); continue; }
+    if (has < e.depth) {  // not covered: allowed only for a node of a civ tree that slot 0 does not have
+      out.uncovered.push(`${short(e.node)} ${e.modifier}`);
+      if (["TREE_TECHS_AQ", "TREE_CIVICS_AQ_MAIN"].includes(GameInfo.ProgressionTreeNodes.lookup(e.node)?.ProgressionTree)) out.joinedUncovered.push(short(e.node));
+      continue;
+    }
     out.covered++;
     const at = has === e.depth;
     if (at) out.atRowDepth++; else out.above++;
@@ -94,9 +102,16 @@ expect("setup: the build's list has kept rows for the three worlds, and every no
   Object.keys(all).length === 3 && rows.length >= 15 && gates.length >= 4 && mainMissing.length === 0,
   { worlds: Object.fromEntries(Object.entries(all).map(([w, l]) => [w, l.filter(kept).length])), ruleOn, master: MASTER, nodes: targets.size, gates: gates.length, mainMissing, notGranted });
 const c1 = census();
-expect("control: in the world of the grants, each row's modifier is active for slot 0 (and no double of an additive effect)", c1.covered >= 12 && c1.bad.length === 0,
+expect("control: in the world of the grants, each row's modifier is active for slot 0 (and no double of an additive effect)", c1.covered >= 12 && c1.joinedUncovered.length === 0 && c1.bad.length === 0,
   { ...c1, uncovered: c1.uncovered.length, badCount: c1.bad.length, values: values(),
     bad: c1.bad.slice(0, 6).map((b) => `${b.node} ${b.modifier}${b.want ? "" : " (not active)"}${b.not ? " (double)" : ""}`) });
+// Icons: the tree screens take a modifier unlock's icon by the modifier's id, so a copy that a row names must have the
+// icon of the original (the build writes icon aliases). Without the rule there is no copy and nothing to compare.
+const copies = rows.filter((e) => e.low);
+const icon = (id) => { try { return UI.getIconURL(id); } catch (e) { return `error ${e}`; } };
+const wrongIcon = copies.filter((e) => !icon(e.modifier) || icon(e.low) !== icon(e.modifier)).map((e) => ({ modifier: e.modifier, original: icon(e.modifier), copy: icon(e.low) }));
+if (ruleOn) expect("each copy that an unlock row names has the icon of the original modifier", copies.length >= 8 && wrongIcon.length === 0,
+  { copies: copies.length, wrong: wrongIcon.slice(0, 6), sample: copies[0] ? { id: copies[0].low, icon: icon(copies[0].low) } : null });
 const m = Game.AgeProgressManager;
 const left = () => m.getMaxAgeProgressionPoints() - m.getCurrentAgeProgressionPoints();
 // Slot 0 ends its own turns to the age's end. With these grants, AI play of slot 0 crashed the game in the Exploration
@@ -112,7 +127,7 @@ return { ok: checks.every((c) => c.ok), checks, master: MASTER, ruleOn, transiti
 const me = GameContext.localPlayerID;
 const checks = [];
 const expect = (name, ok, detail = {}) => { checks.push({ name, ok, detail }); caLive.log({ scenario: "mastery_census", phase: 2, name, ok, detail }); };
-const depth = (n) => Game.ProgressionTrees.getNode(me, GameInfo.ProgressionTreeNodes.lookup(n)?.$hash)?.depthUnlocked ?? 0;
+const depth = (n) => { const d = GameInfo.ProgressionTreeNodes.lookup(n); return d ? (Game.ProgressionTrees.getNode(me, d.$hash)?.depthUnlocked ?? 0) : -1; };  // -1: this world has no such node
 const short = (s) => String(s).replace(/^NODE_/, "");
 const world = GameInfo.Ages.lookup(Game.age)?.AgeType;
 const rows = ((globalThis.caMasterySplit ?? {})[world] ?? []).filter((e) => e.kind === "additive" || e.kind === "switch");
@@ -122,10 +137,14 @@ const values = () => ({ settlementCap: Players.get(me).Stats?.settlementCap, wor
   traditionSlots: Players.get(me).Culture?.getNumCultureSlots(CultureSlotTypes.TRADITION_CULTURE_SLOT) });
 const census = () => {
   const active = new Set(Players.get(me).Modifiers.getModifiers().map((m) => GameEffects.getModifierDefinitionFromTypeId(m.modifierType)?.ID));
-  const out = { rows: rows.length, covered: 0, atRowDepth: 0, above: 0, bad: [], uncovered: [] };
+  const out = { rows: rows.length, covered: 0, atRowDepth: 0, above: 0, bad: [], uncovered: [], joinedUncovered: [] };
   for (const e of rows) {
     const has = depth(e.node);
-    if (has < e.depth) { out.uncovered.push(`${short(e.node)} ${e.modifier}`); continue; }
+    if (has < e.depth) {  // not covered: allowed only for a node of a civ tree that slot 0 does not have
+      out.uncovered.push(`${short(e.node)} ${e.modifier}`);
+      if (["TREE_TECHS_AQ", "TREE_CIVICS_AQ_MAIN"].includes(GameInfo.ProgressionTreeNodes.lookup(e.node)?.ProgressionTree)) out.joinedUncovered.push(short(e.node));
+      continue;
+    }
     out.covered++;
     const at = has === e.depth;
     if (at) out.atRowDepth++; else out.above++;
@@ -140,9 +159,15 @@ const c2 = census();
 const mix = prev.master ? c2.above >= 12 : c2.atRowDepth >= 12;
 expect("the world is Exploration and slot 0 is human, with the depths of this run", world === "AGE_EXPLORATION" && Players.get(me).isHuman && mix,
   { world, turn: Game.turn, master: prev.master, ruleOn, covered: c2.covered, atRowDepth: c2.atRowDepth, above: c2.above });
-expect("test: after the transition, each row's modifier is active for slot 0 (the copy of the node's depth; no double of an additive effect)", c2.covered >= 12 && c2.bad.length === 0,
+expect("test: after the transition, each row's modifier is active for slot 0 (the copy of the node's depth; no double of an additive effect)", c2.covered >= 12 && c2.joinedUncovered.length === 0 && c2.bad.length === 0,
   { ...c2, uncovered: c2.uncovered.length, badCount: c2.bad.length, values: values(),
     bad: c2.bad.slice(0, 6).map((b) => `${b.node} ${b.modifier}${b.want ? "" : " (not active)"}${b.not ? " (double)" : ""}`) });
+// The values: --set CAValues=AxBxCxD = the capital's specialist cap and the tradition slots in the Exploration world,
+// then in the Modern world, as a run with the rule gives them (the same with the nodes mastered or at the row's depth).
+const wantValues = String(Automation.getParameter("CurrentTest", "CAValues", "")).split("x").map(Number);
+const v2 = values();
+expect("test: the capital's specialist cap and the tradition slots have the values of CAValues (a kept effect has its value, once)",
+  v2.workerCap === wantValues[0] && v2.traditionSlots === wantValues[1], { values: v2, want: wantValues.slice(0, 2) });
 if (Number(Automation.getParameter("CurrentTest", "CAAuto", 0)) !== 0) {  // the research in progress, for the crash study
   let last = "";
   setInterval(() => { try { const t = JSON.stringify([Players.get(me).Techs?.getResearching?.(), Players.get(me).Culture?.getResearching?.()]);
@@ -163,7 +188,7 @@ return { ok: checks.every((c) => c.ok), checks, master: prev.master, transition:
 const me = GameContext.localPlayerID;
 const checks = [];
 const expect = (name, ok, detail = {}) => { checks.push({ name, ok, detail }); caLive.log({ scenario: "mastery_census", phase: 3, name, ok, detail }); };
-const depth = (n) => Game.ProgressionTrees.getNode(me, GameInfo.ProgressionTreeNodes.lookup(n)?.$hash)?.depthUnlocked ?? 0;
+const depth = (n) => { const d = GameInfo.ProgressionTreeNodes.lookup(n); return d ? (Game.ProgressionTrees.getNode(me, d.$hash)?.depthUnlocked ?? 0) : -1; };  // -1: this world has no such node
 const short = (s) => String(s).replace(/^NODE_/, "");
 const world = GameInfo.Ages.lookup(Game.age)?.AgeType;
 const rows = ((globalThis.caMasterySplit ?? {})[world] ?? []).filter((e) => e.kind === "additive" || e.kind === "switch");
@@ -173,10 +198,14 @@ const values = () => ({ settlementCap: Players.get(me).Stats?.settlementCap, wor
   traditionSlots: Players.get(me).Culture?.getNumCultureSlots(CultureSlotTypes.TRADITION_CULTURE_SLOT) });
 const census = () => {
   const active = new Set(Players.get(me).Modifiers.getModifiers().map((m) => GameEffects.getModifierDefinitionFromTypeId(m.modifierType)?.ID));
-  const out = { rows: rows.length, covered: 0, atRowDepth: 0, above: 0, bad: [], uncovered: [] };
+  const out = { rows: rows.length, covered: 0, atRowDepth: 0, above: 0, bad: [], uncovered: [], joinedUncovered: [] };
   for (const e of rows) {
     const has = depth(e.node);
-    if (has < e.depth) { out.uncovered.push(`${short(e.node)} ${e.modifier}`); continue; }
+    if (has < e.depth) {  // not covered: allowed only for a node of a civ tree that slot 0 does not have
+      out.uncovered.push(`${short(e.node)} ${e.modifier}`);
+      if (["TREE_TECHS_AQ", "TREE_CIVICS_AQ_MAIN"].includes(GameInfo.ProgressionTreeNodes.lookup(e.node)?.ProgressionTree)) out.joinedUncovered.push(short(e.node));
+      continue;
+    }
     out.covered++;
     const at = has === e.depth;
     if (at) out.atRowDepth++; else out.above++;
@@ -187,8 +216,14 @@ const census = () => {
   return out;
 };
 const c3 = census();
-expect("the world is Modern and slot 0 is human", world === "AGE_MODERN" && Players.get(me).isHuman, { world, turn: Game.turn, ruleOn, covered: c3.covered, atRowDepth: c3.atRowDepth, above: c3.above });
-expect("test: after the second transition, each row's modifier is active for slot 0 (the copy of the node's depth; no double of an additive effect)", c3.covered >= 12 && c3.bad.length === 0,
+const master = ((globalThis.caPrev ?? [])[0] ?? {}).master;
+expect("the world is Modern and slot 0 is human, with the depths of this run", world === "AGE_MODERN" && Players.get(me).isHuman && (master ? c3.above >= 12 : c3.atRowDepth >= 12),
+  { world, turn: Game.turn, master, ruleOn, covered: c3.covered, atRowDepth: c3.atRowDepth, above: c3.above });
+expect("test: after the second transition, each row's modifier is active for slot 0 (the copy of the node's depth; no double of an additive effect)", c3.covered >= 12 && c3.joinedUncovered.length === 0 && c3.bad.length === 0,
   { ...c3, uncovered: c3.uncovered.length, badCount: c3.bad.length, values: values(),
     bad: c3.bad.slice(0, 6).map((b) => `${b.node} ${b.modifier}${b.want ? "" : " (not active)"}${b.not ? " (double)" : ""}`) });
+const wantValues = String(Automation.getParameter("CurrentTest", "CAValues", "")).split("x").map(Number);  // see phase 2
+const v3 = values();
+expect("test: the capital's specialist cap and the tradition slots have the values of CAValues (a kept effect has its value, once)",
+  v3.workerCap === wantValues[2] && v3.traditionSlots === wantValues[3], { values: v3, want: wantValues.slice(2, 4) });
 return { ok: checks.every((c) => c.ok), failed: checks.filter((c) => !c.ok), checks };

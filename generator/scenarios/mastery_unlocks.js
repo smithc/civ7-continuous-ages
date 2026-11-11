@@ -8,14 +8,16 @@
 //                                    workerDelta. Without CADelta the specialist cap check fails (it cannot run).
 // Three effects, one of each kind:
 //   additive: Currency's specialist cap (+1 in each city). Lost at a transition without the rule (the cap is not carried).
-//   switch:   Shipbuilding's deep-ocean protection. Lost at a transition without the rule.
+//   switch:   Shipbuilding's deep-ocean protection, and "deep ocean does not end the move". Lost at a transition without
+//             the rule.
 //   carried:  Feudalism's settlement cap (+1). The engine carries the cap itself, so the rule leaves it; the checks
 //             record the known limit: at depth 1 the row is attached again at the load (+1), mastered it is not (+0).
 // Phase 1 (Antiquity world): the gate (granted); a Cog on deep ocean takes damage while Currency is researched (control);
 // each node gives its effect at depth 1 and no more at the mastery; a new Cog takes no damage with Shipbuilding; slot 0
 // ends its own turns to the age's end (no AI research), and the values there.
 // Phase 2 (Exploration world): the specialist cap changes as in the control run (the test); the settlement cap (known
-// limit); two new ships on deep ocean take no damage in 2 turns (the test).
+// limit); two new ships on deep ocean take no damage in 2 turns (the test); a new Cog crosses two deep-ocean plots in
+// one move (the test).
 const me = GameContext.localPlayerID;
 const MASTER = Number(Automation.getParameter("CurrentTest", "CAMaster", 1)) !== 0;
 const GATE = "NODE_TECH_CA_EXPLORATION_BREAKTHROUGH", CURRENCY = "NODE_TECH_AQ_CURRENCY", FEUDALISM = "NODE_TECH_EX_FEUDALISM", SHIPBUILDING = "NODE_TECH_EX_SHIPBUILDING";
@@ -118,7 +120,9 @@ const workerDelta = workerNow - (prev.end?.worker ?? NaN);
 const wantDelta = Number(Automation.getParameter("CurrentTest", "CADelta", NaN));
 const wDetail = { workerBefore: prev.end?.worker, workerNow, workerDelta, wantDelta };
 if (prev.master) expect("test: the capital's specialist cap changes at the transition as in the control run (the mastered Currency keeps its +1)", workerDelta === wantDelta, wDetail);
-else expect("control: the change of the capital's specialist cap at the transition is measured (workerDelta)", Number.isFinite(workerDelta), wDetail);
+// The control pins the world's own change: +1 (2026-11-11, game 1.5.1). If a game patch changes it, this check fails:
+// measure it again, and change CADelta of the test entry and the note in update_051.js.
+else expect("control: the capital's specialist cap changes by +1 at the transition (the world's own change; the test entry's CADelta)", workerDelta === 1, wDetail);
 const capNow = Players.get(me).Stats?.settlementCap ?? -1;
 const capDelta = capNow - (prev.end?.cap ?? NaN);
 expect(`known limit (the engine carries the settlement cap): Feudalism ${prev.master ? "mastered: its row is not attached again (+0)" : "at depth 1: its row is attached again at the load (+1)"}`,
@@ -151,6 +155,55 @@ await caLive.endTurn();
 const after = ships.map((id) => ({ before: before.get(id), now: state(Units.get(id)) }));
 const damaged = after.filter((s) => !s.now || (s.now.ocean && s.now.damage > (s.before ?? 0)));
 expect("test: no ship of slot 0 takes deep-ocean damage in the Exploration world", after.length >= 2 && damaged.length === 0, { after });
+// Shipbuilding's other depth-1 unlock, "deep ocean does not end the move": a new Cog on a coast plot C, ordered to a
+// deep-ocean plot O2 two steps away across the deep-ocean plot O1, gets past O1 (as in scenarios/deep_ocean_turn.js;
+// without the modifier the ship stops on O1).
+const COAST = GameInfo.Terrains.lookup("TERRAIN_COAST").$index;
+const dirs = Object.entries(DirectionTypes).filter(([k]) => k !== "NO_DIRECTION").map(([, v]) => v);
+const adj = (p) => dirs.map((d) => GameplayMap.getAdjacentPlotLocation(p, d)).filter((q) => q && q.x >= 0 && q.y >= 0);
+const terr = (p) => GameplayMap.getTerrainType(p.x, p.y);
+const free = (p) => (MapUnits.getUnits(p.x, p.y)?.length ?? 0) === 0;
+let route = null;
+for (let r = 1; r < 30 && !route; r++) {
+  for (const i of GameplayMap.getPlotIndicesInRadius(home.x, home.y, r)) {
+    const c = GameplayMap.getLocationFromIndex(i);
+    if (terr(c) !== COAST || !free(c)) continue;
+    for (const o1 of adj(c).filter((q) => terr(q) === OCEAN && free(q))) {
+      const o2 = adj(o1).find((q) => terr(q) === OCEAN && free(q) && GameplayMap.getPlotDistance(q.x, q.y, c.x, c.y) === 2);
+      if (o2) { route = { c, o1, o2 }; break; }
+    }
+    if (route) break;
+  }
+}
+const move = { route, placed: false };
+if (route) {
+  await caLive.createUnitAndWait("UNIT_COG", route.c.x, route.c.y);
+  const ship = mine().find((u) => GameInfo.Units.lookup(u.type)?.UnitType === "UNIT_COG" && u.location.x === route.c.x && u.location.y === route.c.y);
+  if (ship) {
+    move.placed = true;
+    const args = { X: route.o2.x, Y: route.o2.y };
+    const can = Game.UnitOperations.canStart(ship.id, UnitOperationTypes.MOVE_TO, args, false);
+    move.canStart = !!can?.Success;
+    if (can?.Success) Game.UnitOperations.sendRequest(ship.id, UnitOperationTypes.MOVE_TO, args);
+    // The game handles the move a moment later: wait (up to 15 s) until the ship is on O2, or has left C and kept its plot for 2 s.
+    const pos = () => { const v = Units.get(ship.id); return v ? `${v.location.x},${v.location.y}` : "gone"; };
+    const t0 = Date.now();
+    let last = pos(), since = Date.now();
+    while (can?.Success && Date.now() - t0 < 15000) {
+      const p = pos();
+      if (p !== last) { last = p; since = Date.now(); }
+      if (p === `${route.o2.x},${route.o2.y}` || (p !== `${route.c.x},${route.c.y}` && Date.now() - since >= 2000)) break;
+      await settle(500);
+    }
+    const u = Units.get(ship.id);
+    move.at = u ? { x: u.location.x, y: u.location.y } : null;
+    move.onC = !!move.at && move.at.x === route.c.x && move.at.y === route.c.y;
+    move.onO1 = !!move.at && move.at.x === route.o1.x && move.at.y === route.o1.y;
+    move.onO2 = !!move.at && move.at.x === route.o2.x && move.at.y === route.o2.y;
+  }
+}
+expect("test: a Cog ordered across two deep-ocean plots gets past the first one (deep ocean does not end the move)",
+  move.placed && move.canStart && !!move.at && !move.onC && !move.onO1, move);
 // A save of this state, for a load with another build. Not a check.
 Network.saveGame({ Location: SaveLocations.LOCAL_STORAGE, LocationCategories: SaveLocationCategories.NORMAL,
   Type: GameStateStorage.getGameConfigurationSaveType(), ContentType: SaveFileTypes.GAME_STATE, FileName: "CA_MASTERY_EX", Overwrite: true });
