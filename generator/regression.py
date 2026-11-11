@@ -86,7 +86,9 @@ ITEMS = [
      "game speed Epic"),
     ("marathon", "iterate.py --suite ContinuousAgesTransitionMarathon.json --no-fast-test --observe NONE --turns 1500 --timeout 240 --expect-transitions 3", 31,
      "game speed Marathon"),
-    ("live", "live.py all", 8, "all live scenarios (scenarios/scenarios.json), one game each, in one worker"),
+    # live: 35 minutes for 20 scenarios in set 20261110-132232 (it started last and ended last); 25 scenarios since rule
+    # 2n (2026-11-11: about 16 minutes more). The time decides the start order (longest first), so it must be current.
+    ("live", "live.py all", 50, "all live scenarios (scenarios/scenarios.json), one game each, in one worker"),
     ("saves", "(save compatibility: play --prev in a worker, keep 5 autosaves, load each with this build)", 25,
      "saves of the previous release load and play 20 turns"),
 ]
