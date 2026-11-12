@@ -318,6 +318,19 @@ def set_option(path: Path, key: str, value) -> None:
 # (after one game start on the new version, the other workers do not disable their mods), and enables the mods in the
 # worker's own Mods folder (each run installs its build there).
 MOD_RESET_OPTION = "DisableModsOnStartupVersion"
+# What a run says when the game turned its mod off (iterate.py, run_autoplay.ps1, live.py). Runs 20261110-113403-w1
+# and 113404-w2 waited 5 minutes for the hang check and said "HANG FAIL"; prepare() did not enable the mods then
+# (added 2026-11-10, commit 5b93c95). runs.py (civ7-skills) also says "MOD NOT LOADED" for this line.
+MOD_OFF_TEXT = ("the game turned the mod off (after a game update?). A worker run turns its own mods on again at its "
+                "start (gamepool.prepare): run it again. A run without --worker uses your own profile: turn the mod "
+                "on in Add-ons, then run again")
+
+
+def mod_off_line(ui_text: str, mod: str, loaded_mark: str) -> str | None:
+    """The line of UI.log text that shows that the game turned off the mod in folder `mod`: "Cannot determine local
+    path - fs://game/<mod>/...", and no `loaded_mark` in the text (a mod that loaded writes it). Else None."""
+    found = re.search(rf"Cannot determine local path - fs://game/{re.escape(mod)}/\S*", ui_text)
+    return found.group(0) if found and loaded_mark not in ui_text else None
 
 
 def read_option(path: Path, key: str) -> str | None:

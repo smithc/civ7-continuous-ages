@@ -23,6 +23,13 @@ started) it closes the game at once, prints "HANG: the in-game watchdog ..." and
 without the record. A continue from the last autosave was tried and dropped (2026-11-01): after a load the base game
 picks volcano and river plots from other candidate lists (RandCalls.csv), so the rest of the game is not the game
 of the seed, and the checks write extra "first check after a load" records.
+
+Mod off: after a game update the game turns every mod off once (gamepool.py, MOD_RESET_OPTION). The suite's script
+of the mod then cannot load, and the game waits at the main menu. With the line "Cannot determine local path -
+fs://game/continuous-ages/..." in the new part of UI.log, and no [CA-CHECK] record of this run so far, the runner
+closes the game at once, prints "MOD NOT LOADED: ..." and exits with code 5 (not a hang: iterate.py reports MOD NOT
+LOADED, and regression.py does not run the item again). Runs 20261110-113403-w1 and 113404-w2 waited 5 minutes for the
+stall check and said "HANG FAIL".
 #>
 param(
     [int]$Turns = 60,
@@ -150,6 +157,8 @@ $watched = @((Join-Path $logs 'UI.log'), (Join-Path $logs 'RandCalls.csv'))
 $uiLog = Join-Path $logs 'UI.log'
 $uiPos = [long]0
 $startLocal = (Get-Date).AddSeconds(-1)
+$modLoaded = $false
+$modOff = $null
 function Find-HangRecord {
     if (-not (Test-Path $uiLog)) { return $null }
     try { $fs = [System.IO.File]::Open($uiLog, 'Open', 'Read', 'ReadWrite, Delete') } catch { return $null }
@@ -165,6 +174,18 @@ function Find-HangRecord {
         $script:uiPos += $end + 1
         $text = [System.Text.Encoding]::UTF8.GetString($buf, 0, $end + 1)
     } finally { $fs.Dispose() }
+    # The game turned the mod off: the suite's script of the mod cannot load (gamepool.mod_off_line, the same test).
+    # Only while no [CA-CHECK] record of this run has come (a mod that loaded writes them from the start).
+    $ca = [regex]::Matches($text, '(?m)^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]\s+\[CA-CHECK\]')
+    if ($ca.Count -gt 0 -and [datetime]::ParseExact($ca[$ca.Count - 1].Groups[1].Value, 'yyyy-MM-dd HH:mm:ss', $null) -ge $startLocal) {
+        $script:modLoaded = $true
+    }
+    if (-not $script:modLoaded) {
+        foreach ($m in [regex]::Matches($text, '(?m)^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]\s+(Cannot determine local path - fs://game/continuous-ages/\S*)')) {
+            $at = [datetime]::ParseExact($m.Groups[1].Value, 'yyyy-MM-dd HH:mm:ss', $null)
+            if ($at -ge $startLocal) { $script:modOff = "$($m.Groups[1].Value) $($m.Groups[2].Value)"; break }
+        }
+    }
     foreach ($m in [regex]::Matches($text, '(?m)^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]\s+\[CA-CHECK\]\[HANG\] (\{[^\r\n]*"event":"detected"[^\r\n]*\})')) {
         $at = [datetime]::ParseExact($m.Groups[1].Value, 'yyyy-MM-dd HH:mm:ss', $null)
         if ($at -ge $startLocal) { return "$($m.Groups[1].Value) $($m.Groups[2].Value)" }
@@ -181,6 +202,12 @@ while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
     }
     if (-not $proc.HasExited) {
         $record = Find-HangRecord
+        if ($modOff) {
+            Write-Host "MOD NOT LOADED: the game turned the mod off (after a game update?) (UI.log $modOff); closing the game."
+            $proc | Stop-Process -Force -Confirm:$false
+            Start-Sleep -Seconds 5
+            break
+        }
         if ($record) {
             Write-Host "HANG: the in-game watchdog found the turn-start autosave stuck (UI.log $record); closing the game."
             $hung = $true
@@ -200,7 +227,7 @@ while (-not $proc.HasExited -and [DateTime]::UtcNow -lt $deadline) {
         }
     }
 }
-$timedOut = -not $hung -and -not $proc.HasExited
+$timedOut = -not $hung -and -not $modOff -and -not $proc.HasExited
 $minutes = [math]::Round(([DateTime]::UtcNow - $start).TotalMinutes, 1)
 # Worker mode: a game past the time limit is closed, so that the worker is free for the next item (without a
 # worker the game stays, as before).
@@ -241,4 +268,4 @@ Write-Host "Run time: $minutes minutes. Timed out: $timedOut"
 if ($newDumps) { Write-Host 'CRASH: new dump files:'; $newDumps | ForEach-Object { Write-Host "  $($_.FullName)" } }
 if ($results) { Write-Host 'Automation results:'; $results | ForEach-Object { Write-Host "  $($_.Filename): $($_.Line)" } }
 else { Write-Host 'No [PASS]/[FAIL] lines found in the logs written during this run.' }
-if ($newDumps) { exit 1 } elseif ($hung) { exit 4 } elseif ($timedOut) { exit 3 } else { exit 0 }
+if ($newDumps) { exit 1 } elseif ($modOff) { exit 5 } elseif ($hung) { exit 4 } elseif ($timedOut) { exit 3 } else { exit 0 }

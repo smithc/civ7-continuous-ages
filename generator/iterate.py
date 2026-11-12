@@ -8,7 +8,7 @@
   4. Write build/iterations/<time>/REPORT.md and keep a copy of the logs.
 
 Usage: python iterate.py [--turns 60] [--fast-test 0.1 | --no-fast-test] [--timeout 75] [--worker N]
-Exit code: 0 = pass, 1 = fail, 2 = could not run.
+Exit code: 0 = pass, 1 = fail, 2 = could not run (also MOD NOT LOADED: the game turned the mod off).
 
 --worker N runs the game as worker N (gamepool.py): its own user folders, Mods, Logs and Saves, a build in
 build/workers/w<N>/build, and the run folder build/iterations/<time>-w<N>. Several workers can run at once.
@@ -2003,7 +2003,10 @@ def main() -> int:
         snaps = [l for l in (LOGS / "UI.log").read_text(encoding="utf-8", errors="replace").splitlines()
                  if "[CA-CHECK][SNAPSHOT]" in l] if (LOGS / "UI.log").exists() else []
         turns = [int(m.group(1)) for l in snaps for m in [re.search(r'"turn":(\d+)', l)] if m]
-        early_crash = "CRASH" in autoplay_out and (not turns or max(turns) < 5) and len(snaps) < 3
+        # Not a game that the runner closed because the mod was off ("MOD NOT LOADED"; a crash dump then also gives
+        # exit code 1): a second start has the mod off too.
+        early_crash = "CRASH" in autoplay_out and (not turns or max(turns) < 5) and len(snaps) < 3 \
+            and "MOD NOT LOADED" not in autoplay_out
         if attempt == 0 and early_crash:
             retried = f"the first attempt crashed before turn 5 (runner output: {autoplay_out.strip().splitlines()[-1][:200] if autoplay_out.strip() else ''})"
             print(f"Early crash: retrying once ({retried})")
@@ -2018,10 +2021,21 @@ def main() -> int:
         (workdir / "REPORT.md").write_text(report, encoding="utf-8")
         print("The game did not run; logs are from an earlier run. Nothing analyzed.\n" + autoplay_out)
         return 2
-
-    print("3/3 Analyze ...")
-    passed, lines = analyze(start, autoplay_out, workdir, expect_transitions=args.expect_transitions)
-    header = [f"# Iteration {stamp}: {'PASS' if passed else 'FAIL'}", "",
+    # The game turned the mod off (after a game update) and waited at the main menu: nothing to analyze, and not a
+    # hang (regression.py runs a HANG FAIL item again). The runner closes such a game at once (exit code 5). Runs
+    # 20261110-113403-w1 and 113404-w2 waited 5 minutes and said "HANG FAIL" (gamepool.MOD_OFF_TEXT).
+    with ui_log.open("rb") as f:
+        off = gamepool.mod_off_line(f.read(4_000_000).decode("utf-8", errors="replace"), MOD_DIR.name, "[CA-CHECK]")
+    if off:
+        passed, verdict = False, "MOD NOT LOADED"
+        lines = ["## Automation", "", f"- MOD NOT LOADED: {gamepool.MOD_OFF_TEXT}.", f"- UI.log: {off}", "",
+                 "## Autoplay runner output", "", "```", autoplay_out.strip(), "```", ""]
+        shutil.copytree(LOGS, workdir / "logs", dirs_exist_ok=True)
+    else:
+        print("3/3 Analyze ...")
+        passed, lines = analyze(start, autoplay_out, workdir, expect_transitions=args.expect_transitions)
+        verdict = "PASS" if passed else "FAIL"
+    header = [f"# Iteration {stamp}: {verdict}", "",
               f"- Turns: {args.turns}; suite: {args.suite}; fast test: {fast}; autoplay exit code: {res.returncode}",
               # The whole command: a control build, --set, --observe and --disable-rule change what the run proves.
               f"- Command: python iterate.py {' '.join(sys.argv[1:])}" + (" (CONTROL BUILD: base-game rules)" if args.control else ""),
@@ -2032,7 +2046,10 @@ def main() -> int:
               ] + [f"- Build, {m}" for m in re.findall(r"world \w+: .*?violations", build_out)] + [""]
     report = workdir / "REPORT.md"
     report.write_text("\n".join(header + lines), encoding="utf-8")
-    print(f"{'PASS' if passed else 'FAIL'}: {report}")
+    if off:  # exit 2: regression.py says COULD NOT RUN with this last line, and does not run the item again
+        print(f"MOD NOT LOADED: {gamepool.MOD_OFF_TEXT} ({report})")
+        return 2
+    print(f"{verdict}: {report}")
     return 0 if passed else 1
 
 

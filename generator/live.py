@@ -23,7 +23,8 @@ Commands (in generator/):
   python live.py install [--disable-rule X ...]  the checks build with these build_mod.py options; exit 2 when it
                                                  fails (chain the scenario with &&); the scenario report names it
 A scenario file returns {ok: true|false, ...}; its result and the [CA-CHECK][SCENARIO] records go to
-build/scenarios/<time>/REPORT.md with a copy of the logs. Exit code: 0 pass, 1 fail, 2 could not run.
+build/scenarios/<time>/REPORT.md with a copy of the logs. Exit code: 0 pass, 1 fail, 2 could not run (also MOD NOT
+LOADED: the game turned the mod off; then "live.py wait" stops at once with exit code 1, and the game stays open).
 
   python live.py --worker N <command> ...        the same in worker N (gamepool.py): own user folders, Mods, Logs
                                                  and Saves; the game starts from its executable. Autoplay workers can
@@ -352,6 +353,21 @@ def host_game(sets: list[str], timeout: float = 300) -> dict:
     return evaluate("(Network.hostGame(ServerType.SERVER_TYPE_NONE), { ok: true, revision: GameSetup.currentRevision })", timeout=30)
 
 
+def mod_turned_off(since: float | None) -> str | None:
+    """MOD NOT LOADED text when UI.log, written after `since` (the game's start), shows that the game turned the mod
+    off (gamepool.mod_off_line; the line comes at the game start). Without a suite (a manual game) the mod's script is
+    not loaded, and there is no such line."""
+    ui = LOGS / "UI.log"
+    try:
+        if since is None or ui.stat().st_mtime < since:
+            return None  # the UI.log of an earlier game
+        with ui.open("rb") as f:
+            off = gamepool.mod_off_line(f.read(1_000_000).decode("utf-8", errors="replace"), MOD_DIR.name, "[CA-CHECK]")
+    except OSError:
+        return None
+    return f"MOD NOT LOADED: {gamepool.MOD_OFF_TEXT} (UI.log: {off})" if off else None
+
+
 def wait(timeout: float, expr: str = "globalThis.caLive?.ready === true && typeof Game !== 'undefined' && Game.turn >= 1") -> bool:
     if manual() and expr.startswith("globalThis.caLive?.ready === true && "):
         # A normal game has no caLive before the injection; keep the rest (a reload phase waits for caAwaitReload).
@@ -383,6 +399,12 @@ def wait(timeout: float, expr: str = "globalThis.caLive?.ready === true && typeo
         mine = set(state.get("pids", []))
         if mine and not mine & set(game_pids()):
             print(f"the game process ended before the game was ready (a crash?); last state: {last}")
+            return False
+        # The game turned the mod off: else it waits at the main menu until the timeout (a scenario: 10 minutes), as
+        # the autoplay runs 20261110-113403-w1 and 113404-w2 did until their hang check.
+        off = mod_turned_off(state.get("started"))
+        if off:
+            print(off)
             return False
         # A crashed game can keep its process for many minutes: a new crash dump ends the wait.
         dumps = [p for p in (LOGS.parent / "packagedDumps").glob("*") if p.stat().st_mtime > state.get("started", time.time())]
@@ -499,6 +521,7 @@ def scenario(file: Path, suite: str, sets: list[str], timeout: float, is_manual:
     out.mkdir(parents=True, exist_ok=True)
     build = installed_build()  # before the game starts: what this scenario runs on
     print(f"build: {build}")
+    begun = time.time()
     if start(suite, sets, is_manual) != 0:
         return 2
     t0 = time.time()
@@ -508,7 +531,8 @@ def scenario(file: Path, suite: str, sets: list[str], timeout: float, is_manual:
         if not hosted.get("ok"):
             result = {"ok": False, "error": "could not host the game", "host": hosted}
         elif not wait(600):
-            result = {"ok": False, "error": "the game was not ready in 10 minutes, or it crashed before (see the live.py output)"}
+            result = {"ok": False, "error": mod_turned_off(begun)
+                      or "the game was not ready in 10 minutes, or it crashed before (see the live.py output)"}
         else:
             result, _ = run_phases(file, timeout)
     except (OSError, ConnectionError, ValueError) as e:
@@ -523,15 +547,17 @@ def scenario(file: Path, suite: str, sets: list[str], timeout: float, is_manual:
     fails = [l for l in (out / "logs" / "UI.log").read_text(encoding="utf-8", errors="replace").splitlines()
              if "[CA-CHECK][FAIL]" in l or "[CA-CHECK][ERROR]" in l] if (out / "logs" / "UI.log").exists() else []
     passed = passed and not fails
-    report = [f"# Scenario {file.name}: {'PASS' if passed else 'FAIL'}", "",
+    off = str(result.get("error", "")).startswith("MOD NOT LOADED")  # exit 2: the scenario did not run
+    verdict = "PASS" if passed else "MOD NOT LOADED" if off else "FAIL"
+    report = [f"# Scenario {file.name}: {verdict}", "",
               f"- Suite: {suite} {' '.join(sets)}", f"- Build: {build}", f"- Time: {round((time.time() - t0) / 60, 1)} minutes", "",
               "## Result", "", "```json", json.dumps(result, indent=1)[:20000], "```", "",
               "## [CA-CHECK][SCENARIO] records", ""] + [f"- `{r[:900]}`" for r in records] + \
              ["", "## [CA-CHECK][FAIL] and [ERROR] lines", ""] + ([f"- {l[:900]}" for l in fails] or ["- none"])
     (out / "REPORT.md").write_text("\n".join(report) + "\n", encoding="utf-8")
     shutil.copy(file, out / file.name)
-    print(f"{'PASS' if passed else 'FAIL'}: {out / 'REPORT.md'}")
-    return 0 if passed else 1
+    print(f"{result['error']} ({out / 'REPORT.md'})" if off else f"{verdict}: {out / 'REPORT.md'}")
+    return 0 if passed else 2 if off else 1
 
 
 def install(options: list[str]) -> bool:
@@ -573,7 +599,7 @@ def run_all(listing: Path, only: str | None) -> int:
     entries = json.loads(listing.read_text(encoding="utf-8"))
     rows, failed = [], 0
     installed = None
-    for e in entries:
+    for i, e in enumerate(entries):
         if only and only not in e["file"]:
             continue
         options = e.get("build", [])
@@ -588,6 +614,16 @@ def run_all(listing: Path, only: str | None) -> int:
         failed += code != 0
         rows.append(f"| {e['file']} | {' '.join(e.get('set', [])) or '-'} | {'PASS' if code == 0 else 'FAIL' if code == 1 else 'NOT RUN'} | "
                     f"{new[-1].name if new else '-'} | {e.get('proves', '')} |")
+        # Without a worker, the next games would not load the mod either (the user turns it on in Add-ons). A worker's
+        # next start turns its mods on again (gamepool.prepare), so a worker goes on.
+        if code == 2 and not WORKER and new and (new[-1] / "REPORT.md").exists() and \
+                ": MOD NOT LOADED" in (new[-1] / "REPORT.md").read_text(encoding="utf-8").split("\n", 1)[0]:
+            print("MOD NOT LOADED: the list stops here (turn the mod on in Add-ons, then run again)")
+            skipped = [x for x in entries[i + 1:] if not only or only in x["file"]]
+            rows += [f"| {x['file']} | {' '.join(x.get('set', [])) or '-'} | NOT RUN | - | the list stopped: MOD NOT LOADED |"
+                     for x in skipped]
+            failed += len(skipped)
+            break
     if installed not in (None, []):
         install([])
     out = REPO / "build" / "scenarios" / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}{f'-w{WORKER}' if WORKER else ''}-all.md"

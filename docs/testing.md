@@ -295,7 +295,9 @@ Gaps to close next, most important first:
    (in `generator/`): `live.py all`, the release suites in [Development](development.md#automated-tests)
    (with `ContinuousAgesDefault.json` on several seeds), and the save compatibility test, on parallel game
    workers ([Parallel games](development.md#parallel-games)).
-   The set does not have the Regroup suite (`ContinuousAgesTransitionOriginal.json`): run it too.
+   Since 2026-11-11 the set has 15 items (`regression.py --list`), with the Regroup suite
+   (`ContinuousAgesTransitionOriginal.json`, item `regroup`). Before that, Regroup was not in the set, for no recorded
+   reason, and it ran by hand after the sets of 2026-11-07 and 2026-11-10 (not after the set of 2026-11-11).
    Set of 2026-11-07 for the 0.5.0 candidate (git 42b6a00): 15 of 18 items passed, and Regroup passed
    (20261107-235511-w2). Not passed: `live` (a control of `old_resources.js` under load; the scenario now
    waits for state, commit 84617d1); Time-Tested 20261107-221556-w6 (a check gap, U-TOT-SHADOW, fixed and

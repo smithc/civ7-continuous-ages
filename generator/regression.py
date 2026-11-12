@@ -1,7 +1,8 @@
 """The release regression set: run it in parallel game workers, follow it, run again what failed, stop it.
 
   python regression.py --list [--workers N]      the items, their commands and typical minutes (one game each);
-                                                 with --workers, the estimated time of the set
+                                                 with --workers, the estimated time of the set (games that run
+                                                 together are slower: see SLOWDOWN_6)
   python regression.py run [--workers N] [--only K1,K2,...] [--skip K,...] [--prev v0.4.0] [--fresh-saves] [--dry-run]
                                                  run the items on N workers at once (default 6); results in
                                                  build/regression/<stamp>.txt, each item's output in build/regression/<stamp>/;
@@ -65,6 +66,12 @@ T = "--turns 700 --timeout 150 --expect-transitions 3"
 ITEMS = [
     ("transition", f"iterate.py --suite ContinuousAgesTransition.json --no-fast-test --observe NONE {T}", 15,
      "three ages, normal cost: continuity through both transitions"),
+    # regroup: in the set since 2026-11-11; before, it ran by hand after the set (20261107-235511-w2,
+    # 20261110-154406-w1, the same flags). 16 is the run time of 20261110-154406-w1 (15.9 min), next to one other
+    # game (live.py all on w4), so it is not a time alone: 20261107-235511-w2 took 11.3 min with no other test run.
+    # The estimate is sensitive to it: 99 min on 6 workers with 16, 87 with 13 (2026-11-11).
+    ("regroup", f"iterate.py --suite ContinuousAgesTransitionOriginal.json --no-fast-test --observe NONE {T}", 16,
+     "Age Transition Impact: Regroup (docs/settings.md): the no-reset steps with the other setting"),
     ("seed777", f"iterate.py --suite ContinuousAgesTransitionSeed777.json --fast-test 0.4 --observe NONE {T}", 11,
      "civs ahead of the world, DLC civs"),
     ("persist", f"iterate.py --suite ContinuousAgesTransitionPersist.json --no-fast-test --observe NONE {T}", 15,
@@ -99,6 +106,18 @@ SAVE_PLAY_MINUTES, SAVE_LOAD_MINUTES = 15, 4
 SAVE_LOAD = "iterate.py --suite ContinuousAgesFromSaveCompat.json --no-fast-test --turns 20 --observe NONE --timeout 25 --set SaveName={save}"
 PLAY_ARGS = ["-Turns", "700", "-TimeoutMinutes", "150", "-ObserveAs", "NONE"]  # the previous release's three-age game
 RESULT = re.compile(r"^(PASS|FAIL|\d+ FAIL): (.+)$")
+# Games that run together are slower than one game alone. The factor for 6 games comes from the two sets on game
+# 1.5.1 (the sum of the item minutes in the set / the sum of their typical minutes alone; all items but live and
+# human): 20261110-132232 332/204 = 1.63 (live ran only in its last 35 minutes), 20261111-151045 351/204 = 1.72
+# (live ran the whole set, as it does now). Those sets took 91 and 88 minutes; the old estimate without a factor
+# said 53 and 56, and with 1.7 the items of 20261111-151045 (live 64) give 87. The earlier 6-worker sets on game
+# 1.5.0 had less (20261101-191259 1.38, 20261107-221441 1.62). 1 worker: no factor; other worker counts: linear (not
+# measured). The factor uses the games at once: the workers, but not more than the jobs (a rerun of 1 item on 6
+# workers plays alone). The live item's typical minutes are already its minutes in a 6-worker set, and the
+# human slot (--observe 0) played about as fast in each set as alone (44 to 51 minutes in the five sets, 45 alone):
+# they get no factor. (2026-11-11)
+SLOWDOWN_6 = 1.7
+NO_SLOWDOWN = {"live", "human"}
 
 
 def now() -> str:
@@ -185,16 +204,23 @@ def jobs_for(keys: list[str], prev: str | None, fresh: bool, dry: bool) -> tuple
     return jobs, notes
 
 
+def slowdown(workers: int) -> float:
+    """How much slower one game plays next to the others on N workers (1.0 alone; SLOWDOWN_6 at 6)."""
+    return 1 + (SLOWDOWN_6 - 1) * (max(workers, 1) - 1) / 5
+
+
 def estimate(jobs: list[Job], workers: int) -> float:
-    """Minutes of the set on N workers, from the typical minutes of one game alone (longest first; no slowdown
-    from running together counted)."""
+    """Minutes of the set on N workers: the typical minutes of one game alone times slowdown(N) (not for the
+    NO_SLOWDOWN items), the longest first. N is not more than the jobs (fewer games then run at once)."""
+    workers = max(1, min(workers, len(jobs)))
+    f = slowdown(workers)
     free = [0.0] * workers
     done: dict[str, float] = {}
     live_free = 0.0
     for j in order(jobs):
         i = min(range(workers), key=lambda k: free[k])
         t = max(free[i], done.get(j.needs, 0.0) if j.needs else 0.0, live_free if j.live else 0.0)
-        free[i] = t + j.minutes
+        free[i] = t + j.minutes * (1.0 if j.key in NO_SLOWDOWN else f)
         done[j.key] = free[i]
         if j.live:
             live_free = free[i]
@@ -412,7 +438,10 @@ def play_previous(prev: str, worker: int) -> int:
     if len(have) == len(kept):
         print(f"PASS: kept {', '.join(have)} in {real} (runner exit {res.returncode})")
         return 0
-    print(f"FAIL: kept {len(have)} of {len(kept)} saves ({', '.join(have) or 'none'}); runner exit {res.returncode}")
+    # Runner exit 5: the game turned the mod off (run_autoplay.ps1, 2026-11-11). Name it, so that the set's result
+    # line does not read as a save problem; the next run of this worker has its mods on again (gamepool.prepare).
+    why = "; MOD NOT LOADED: the game turned the mod off (after a game update?), run it again" if res.returncode == 5 else ""
+    print(f"FAIL: kept {len(have)} of {len(kept)} saves ({', '.join(have) or 'none'}); runner exit {res.returncode}{why}")
     return 1
 
 
@@ -544,8 +573,13 @@ def main() -> int:
         for k, c, m, why in ITEMS:
             print(f"{k:<12} {m:>3} min  {why}\n{'':18}{'' if c.startswith('(') else 'python '}{c}")
         jobs, _ = jobs_for(keys_all, prev_tag(), False, True)
-        print(f"\nAll: about {sum(m for _, _, m, _ in ITEMS)} min one at a time; about {estimate(jobs, a.workers):.0f} min "
-              f"on {a.workers} workers (typical times; games that run together are a little slower). Results: {REG}\\<stamp>.txt")
+        # One at a time: the jobs (saves = saves:play and 5 loads), as the header of a set counts them.
+        print(f"\nAll: about {sum(j.minutes for j in jobs)} min one at a time; about {estimate(jobs, a.workers):.0f} min "
+              f"on {a.workers} worker(s).\nThe estimate: each item's typical minutes alone times "
+              f"{slowdown(max(1, min(a.workers, len(jobs)))):.2f} (games that run together are slower: {SLOWDOWN_6} with 6, from the sets of "
+              f"10 and 11 November 2026; 1.0 with 1; linear for other counts, not measured), except "
+              f"{' and '.join(sorted(NO_SLOWDOWN))} (their typical minutes match their minutes in a set); the longest "
+              f"first, one live item at a time.\nResults: {REG}\\<stamp>.txt")
         return 0
     if a.cmd == "status":
         return status(a.results)

@@ -43,7 +43,7 @@ your game is somewhere else.
 | `generator/live.py` | Live tests: starts a game for a script, runs JavaScript in the game through the UI debugger (port 9444), runs scenario files and writes `build/scenarios/<time>/REPORT.md` (see [Testing](testing.md#live-tests)). Before a launch it closes a crash reporter left by an earlier game (Steam counts it as the game and starts no other); it keeps the id of each game process it starts, and closes that game also after a crash. `live.py --worker N <command>` runs in a parallel game worker; only one live game at a time (port 9444). |
 | `generator/scenarios/` | Scenario tests for `live.py` (`scenarios.json` lists them) and probe scenarios. |
 | `generator/ui_test.py` | UI test in the game: loads a save, runs `checks/ca-ui-test.js`, takes screenshots and checks the civic tree lines and hover highlight (see [UI test](#ui-test)). |
-| `generator/run_autoplay.ps1` | Starts the game with an autoplay suite and waits for it to end. It closes the game it started at once when the hang watchdog of the test build writes its `[CA-CHECK][HANG] ... "detected"` record in `UI.log` (the base-game save hang, [Known limits](known-limits.md#open-checks)), and if `UI.log` and `RandCalls.csv` have not changed for 10 minutes (`-StallMinutes`); the report then says `HANG FAIL`. It compares times in UTC, so a run goes on when daylight saving time ends. In a worker (`CIV7_WORKER` set by `iterate.py --worker N`) it starts the game from its executable, follows only that process, closes only that game's crash reporter, reads only that game's dumps, and closes the game after the time limit (`-TimeoutMinutes`), so the worker is free for the next item. |
+| `generator/run_autoplay.ps1` | Starts the game with an autoplay suite and waits for it to end. It closes the game it started at once when the hang watchdog of the test build writes its `[CA-CHECK][HANG] ... "detected"` record in `UI.log` (the base-game save hang, [Known limits](known-limits.md#open-checks)), and if `UI.log` and `RandCalls.csv` have not changed for 10 minutes (`-StallMinutes`); the report then says `HANG FAIL`. It also closes the game at once when the game turned the mod off (after a game update, see [After a game patch or DLC](#after-a-game-patch-or-dlc)): `UI.log` has `Cannot determine local path - fs://game/continuous-ages/...` and no `[CA-CHECK]` record of this run. It then exits with code 5, and `iterate.py` writes a short report `MOD NOT LOADED` with the fix and exits with code 2 (not a hang: `regression.py` does not run the item again; `live.py` stops its wait for the game in the same way, and a scenario then closes its game and says `MOD NOT LOADED`). Before this check (added 2026-11-11), such runs waited for the stall check and said `HANG FAIL` (20261110-113403-w1 and 113404-w2). It compares times in UTC, so a run goes on when daylight saving time ends. In a worker (`CIV7_WORKER` set by `iterate.py --worker N`) it starts the game from its executable, follows only that process, closes only that game's crash reporter, reads only that game's dumps, and closes the game after the time limit (`-TimeoutMinutes`), so the worker is free for the next item. |
 | `generator/autoplay/` | Autoplay suites. |
 | `generator/tools/crashstack.py` | Names the game frames of a crash dump's stack. |
 | `generator/tools/screenshot.py` | Screenshot of the primary screen as PNG (standard library only). |
@@ -333,6 +333,16 @@ the repo:
   about 242 minutes (4.3 times faster). The saves of v0.4.0 were kept from the set before, so `saves:play`
   did not run. The longest items set the time: Marathon took 51 minutes (31 alone) and the human slot 45
   (45 alone); the three-age game took 21 minutes (15 alone).
+- **The release sets on game 1.5.1** (`20261110-132232`, `20261111-151045`, 6 workers): 91 and 88 minutes. Each
+  game played about 1.6 to 1.7 times slower than alone (all items but `live` and the human slot: 332 and 351
+  minutes in the set for 204 alone); the human slot only about 1.1 times (51 and 49 minutes, 45 alone).
+  `regression.py` estimates a set from the typical minutes alone times this slowdown: 1.7 with 6 workers,
+  1.0 with 1, linear for other counts (not measured); `live` and the human slot get no factor (`SLOWDOWN_6` in
+  `regression.py`, 2026-11-11). Before, the estimate had no factor and said 53 and 56 minutes for these sets.
+  The earlier 6-worker sets on game 1.5.0 had less slowdown (1.38 in `20261101-191259`, 1.62 in `20261107-221441`).
+  With the `regroup` item (since 2026-11-11) the estimate is about 99 minutes on 6 workers (`regression.py --list`).
+  Its 16 minutes come from a run next to one other game (20261110-154406-w1); alone it took 11.3
+  (20261107-235511-w2). With 13 minutes the estimate is 87: it depends on how the items fill the workers at the end.
 - **Priority.** The game sets its own priority class: Normal at start, AboveNormal some seconds later, and
   BelowNormal when its window loses the focus; it sets it again and again. With several games, the one
   whose window had the focus ran at BelowNormal and the others at AboveNormal: at 100% CPU it played about
@@ -362,8 +372,10 @@ the repo:
    release's `TRANSITION_EDITS` (`git show v<version>:generator/build_test1.py`, not the current list) in reverse order. Then add the same anchor change to `GAME_PATCHES` in `oldversion.py`, so that
    the save tests can still build the previous release (`saves:play`, `tools/savecompat.py`).
 3. A game update turns off every mod once per user profile (`AppOptions.txt`, `[Modding]
-   DisableModsOnStartupVersion`), and a test game then waits at the main menu. `gamepool.prepare()` enables each
-   worker's own mods again and copies the highest version to every worker. A run without `--worker` uses your own
-   profile: start the game once and turn the mod on in Add-ons.
+   DisableModsOnStartupVersion`), and a test game then waits at the main menu. Since 2026-11-11 the run closes
+   such a game at once and says `MOD NOT LOADED` (see `run_autoplay.ps1` in the file table). `gamepool.prepare()`
+   enables each worker's own mods again and copies the highest version to every worker; when no profile has started
+   the new version yet, the first game of a worker can still turn its mods off, and the next run of that worker
+   loads them. A run without `--worker` uses your own profile: start the game once and turn the mod on in Add-ons.
 4. Compare the new build with the last release (the files of its zip) and read the changes, then run the three-age
    test and the release set.

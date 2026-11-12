@@ -43,9 +43,11 @@ absent), but this has not been tested. Test it on a game without DLC before the 
 
    - one game played by hand through one age transition.
 3. Check that saved games of the previous release still load (see
-   [Save compatibility](#save-compatibility)): the database check, and the load test (the release set's
-   `saves` items).
-4. Set `MOD_VERSION` in `generator/build_mod.py` (see [Versions](#versions)) and commit.
+   [Save compatibility](#save-compatibility)): the database check (against the published zip after a game
+   update), and the load test (the release set's `saves` items).
+4. Set `MOD_VERSION` in `generator/build_mod.py` (see [Versions](#versions)). Add the row to the
+   [compatibility table](#compatibility-table) (game version and Steam build of the installed game, which step 5
+   writes into `build-info.json`; what was tested, with the run stamps of the set). Commit.
 5. Build the release:
 
    ```
@@ -60,12 +62,39 @@ absent), but this has not been tested. Test it on a game without DLC before the 
    If `build-info.json` says `"git_dirty": true`, commit first and build again. The build report goes
    to `build/continuous-ages-build-report.md`, not into the mod folder: the Workshop uploader publishes
    every file in that folder (up to 0.4.0, the report was in it, and the 0.3.0 Workshop item has it).
-6. Make a GitHub release: tag `v<mod version>`, attach the zip, and in the notes give the game
-   version from `build-info.json` and the main changes.
+6. Make the GitHub release, only when the user asks to publish. In the repo folder:
+   - Tag the build commit (`git_commit` in `build-info.json`) first, with a lightweight tag (as every tag from
+     `v0.2.0` to `v0.6.0`), and push the tag:
+
+     ```
+     git tag v<mod version> <git_commit>
+     git push github main
+     git push github v<mod version>
+     ```
+
+     Without the tag, `gh release create` makes the tag at the HEAD of `main`. That is wrong when a commit
+     (for example a docs commit, step 8) comes after the build commit.
+   - Write the notes into a file: the game version from `build-info.json`, the "New in <mod version>" list
+     (the same list as the modinfo description and `workshop/description.bbcode`), what was tested, and the
+     open problems. After a game update, tell players to turn the mod on again in the Add-ons screen before
+     they load a game: the update turns off every mod once ([Known limits](known-limits.md#from-050-to-051)).
+     Links must be absolute, `https://github.com/smithc/civ7-continuous-ages/blob/v<mod version>/docs/...`:
+     relative links do not work in release notes (10 Nov 2026).
+   - Create the release with the zip:
+
+     ```
+     gh release create v<mod version> build/dist/<zip> --repo smithc/civ7-continuous-ages --verify-tag --title "Continuous Ages <mod version>" --notes-file <scratch>\notes.md
+     gh release download v<mod version> --repo smithc/civ7-continuous-ages --pattern "*.zip" --dir <scratch>
+     ```
+
+     `--verify-tag` stops when the tag is not on GitHub. The SHA-256 of the downloaded zip must match the
+     local zip (`Get-FileHash`).
 7. Upload the same mod folder (`build/continuous-ages`, or the zip's `continuous-ages` folder) to the
    Steam Workshop (below). The folder must hold the same files as the zip, and no `.md` file. After the
    tag exists, the folder must be the tagged build: a later commit on `main` does not change the release.
-8. Add a row to the [compatibility table](#compatibility-table).
+8. The user plays the hand test (step 2) with the release build (`build_mod.py --package --install`), so
+   its result comes after the build commit and its tag. Put it into the row as a docs commit (11 Nov 2026:
+   a0d2b16 after the tag of 0.6.0 on 87e7c48). It needs no new build and no new tag.
 
 ### Install from the zip (for players)
 
@@ -115,18 +144,32 @@ version must not remove or rename an id that an earlier version created.
 
 Two checks, before each release:
 
-1. **Database check** (about 2 minutes; build the current version first):
+1. **Database check** (about 2 minutes; build the current version first). Compare with the published
+   files of the previous release:
 
    ```
    cd generator
    python build_mod.py
-   python tools/savecompat.py v<previous version>
+   python -m zipfile -e <previous zip> <scratch>
+   python tools/savecompat.py --old <scratch>\continuous-ages
    ```
 
-   It builds the previous release in a temporary git worktree and compares both databases (base
-   game, DLC and mod) for each world age. It fails if a `Types` row or a modifier id was removed.
-   Other changes are listed for review. Ids that come from a list position (for example rule 5c's
+   The previous zip is in `build/dist`, or get it with
+   `gh release download v<previous version> --repo smithc/civ7-continuous-ages --pattern "*.zip" --dir <scratch>`.
+   For each world age the check loads the base game, the DLC and one mod build into the offline database,
+   once for each build, and compares the two databases. It fails if a `Types` row or a modifier id was
+   removed. Other changes are listed for review. Ids that come from a list position (for example rule 5c's
    `CA_KEEP_TRADITION_<policy>_<n>`) must keep their positions: add new rows after the old ones.
+
+   `python tools/savecompat.py v<previous version>` builds the previous release from its git tag in a
+   temporary worktree, on the installed game. After a game update that build is not the published one: the
+   mod copies the content of the other ages from the installed game, so a game change is in both builds, and
+   the check passes by construction. After a game update, the `--old` form with the published zip is
+   necessary (10 Nov 2026: only that form found `BREAKS SAVES: Modifiers removed ['262B_NARRATIVE_MODIFIER2']`,
+   see [Known limits](known-limits.md#from-050-to-051)). The `v<ref>` form is enough when the previous release
+   was built on the installed game version (the same game version in its row of the
+   [compatibility table](#compatibility-table)). After a game update it also shows which changes come from the
+   mod and not from the game.
 2. **Load test** of real saves of the previous version: the release set's `saves` items do it
    (`python regression.py run --only saves`). `saves:play` plays the previous version in a game worker
    (its own `build_mod.py`, from a git worktree, installs the old mod into the worker; the current runner
