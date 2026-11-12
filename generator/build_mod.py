@@ -36,7 +36,7 @@ import classification as cls
 from build_test1 import transition_script, write_xml, EXCLUDE_PATTERNS, TEXT_EXCLUDE
 
 MOD_ID = "continuous-ages"
-MOD_VERSION = "0.5.1"  # the release version (docs/releasing.md); the zip name and build-info.json use it
+MOD_VERSION = "0.6.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
 # Plain text in the modinfo, not text keys: the Steam Workshop uploader shows the modinfo's Name and
@@ -64,12 +64,10 @@ RECOMMENDED SETTINGS
 - Start age: Antiquity.
 - AI civ selection at age transition: Mirroring (default), or Current Civilization Persistence.
 
-NEW IN 0.5.1
-- Built for game update 1.5.1. The rules of 0.5.0 are unchanged.
-- After a game update, the game turns off every mod once. Turn Continuous Ages on again in the Add-ons screen (Additional Content) before you load a game.
-- The great people that game update 1.5.1 moved into civ abilities (Alim, Conquistador, Saga Hero, Jacobin, Revolucionario, Uparat) wait for the civ's Breakthrough of their age, as its other civ abilities do. In a game saved before the update, they come after the next world transition.
-- Newly documented known limit, also in 0.5.0: a town that can buy buildings of a type (a town focus, Augustus, some civ abilities) can also buy later-age buildings of that type before your Breakthrough. The base game allows this within one age.
-- Games saved with 0.5.0 continue with 0.5.1.
+NEW IN 0.6.0
+- Masteries keep their first-level bonuses after an age transition. Up to 0.5.1, a tech or civic that you mastered before the move to the next age lost the bonuses of its first level in the next age. Examples: Shipbuilding's protection from deep-ocean damage and its rule that deep ocean no longer ends a ship's move (a player report), the specialist limit of Currency, Education, Urban Planning, Capitalism and Electricity, the tradition slot of Code of Laws and Authority, the pantheon of Mysticism.
+- Games saved with 0.5.1 continue with 0.6.0. Techs and civics that you research or master after the update work at once. Bonuses that were already lost come back at the game's next age transition. Until then, a specialist limit or a tradition slot of a tech that you researched before the update and master after it can count twice.
+- Newly documented known limit, also in earlier versions: each civilization's settlement limit rises at each age transition, because the game carries the limit into the next age and adds the bonus of some techs and civics again. In a test game each civilization gained 2 to 5 at the move to Exploration and 5 to 10 at the move to Modern.
 
 STATUS
 Playable, in testing. Full AI games play through all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.

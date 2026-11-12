@@ -30,7 +30,7 @@ reset of a civ's progress except where noted.
 
 ## Updating a game in progress
 
-### From 0.5.1 to the next version (rule 2n)
+### From 0.5.1 to 0.6.0 (rule 2n)
 
 Rule 2n keeps the first-level bonuses of a mastered tech or civic across a world transition (see
 [Mechanics](mechanics.md#masteries)). It works through the unlocks of the tech itself, so a game saved with 0.5.1
