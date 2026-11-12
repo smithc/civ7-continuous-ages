@@ -483,7 +483,7 @@ CATCHUP_WINDOW = (0.85, 1.20)
 CATCHUP_MIN_SAMPLES = 5
 
 
-def catchup_report(recs: list) -> tuple[list[str], bool]:
+def catchup_report(recs: list, banks: list | None = None) -> tuple[list[str], bool]:
     """Catch-up Research (docs/settings.md), from the CATCHUP records (one per civ, check and node group). The game
     shows the bonus in the cost (getNodeCost; the effect of System of Ideas), not in the turns, so each sample gives:
       rate:  (cost - progress) / (turns - 0.5) / yield, about 1: the turns follow the cost shown. getTurnsForNode is
@@ -498,9 +498,22 @@ def catchup_report(recs: list) -> tuple[list[str], bool]:
       speed: rate * base / cost, the research speed against the base cost. Expected: 1 + bonus for nodes of the
              earlier ages and the Breakthroughs into the world age (they count as the age before), else 1.
     FAIL when a group's median speed is outside CATCHUP_WINDOW times the expected speed. A group without a base
-    cost in the run (a run from a save) is listed, not judged."""
+    cost in the run (a run from a save) is listed, not judged.
+    banks: the BANK records. A check at which the civ has a hidden bank of that yield (its lower bound at least one
+    turn of yield) is left out: the bank pays part of the node, so the turns are fewer than the cost says. Run
+    20261111-160029-w2: two civs with a science bank of about 970 on Modern turn 1 gave 4 of the 7 samples of a group,
+    rates 2.35 to 3.17 (without the bank, (1740 - 970) / 10.5 / 70.4 = 1.04), and the group failed at 2.35. Banks at
+    the start of a later world are common (16 of 20 runs of the 0.5.1 set had one)."""
     worlds = {"AGE_ANTIQUITY": 0, "AGE_EXPLORATION": 1, "AGE_MODERN": 2}
     med = lambda v: (sorted(v)[(len(v) - 1) // 2] + sorted(v)[len(v) // 2]) / 2
+    banked = set()
+    for b in banks or []:
+        for kind, key in (("tech", "science"), ("civic", "culture")):
+            v = b.get(key)
+            if isinstance(v, dict) and isinstance(v.get("lo"), (int, float)) and isinstance(v.get("rate"), (int, float)) \
+                    and v["rate"] > 0 and v["lo"] >= v["rate"]:
+                banked.add((b.get("age"), b.get("turn"), b.get("id"), kind))
+    left_out = 0
     def node_age(group, n):
         if group.endswith(" gate"):
             return 0 if "EXPLORATION" in n else 1  # a Breakthrough belongs to the age before it
@@ -512,6 +525,9 @@ def catchup_report(recs: list) -> tuple[list[str], bool]:
             continue  # older format (a cut line, or no node list)
         for group, items in r["nodes"].items():
             kind = group.split()[0]
+            if (r.get("age"), r.get("turn"), r.get("id"), kind) in banked:
+                left_out += len(items) if isinstance(items, list) else 0
+                continue
             y = r.get("science") if kind == "tech" else r.get("culture")
             for s in items if isinstance(items, list) else []:
                 a = node_age(group, s.get("n", ""))
@@ -543,7 +559,8 @@ def catchup_report(recs: list) -> tuple[list[str], bool]:
              "Research speed against the base cost, by node group (medians). Rate: (cost - progress) / (turns - 0.5) / yield; "
              "cost: against the node's cost where no bonus applies; speed: rate times base / cost. Expected: 1 + bonus "
              f"for earlier-age nodes and the Breakthroughs into the world age, else 1; window {CATCHUP_WINDOW[0]} to "
-             f"{CATCHUP_WINDOW[1]} of the expected value, at least {CATCHUP_MIN_SAMPLES} samples.", "",
+             f"{CATCHUP_WINDOW[1]} of the expected value, at least {CATCHUP_MIN_SAMPLES} samples. Left out: {left_out} "
+             "node samples at checks where the civ had a hidden bank of that yield (BANK).", "",
              "| World age | Nodes | Setting | Expected | Samples (rate, speed) | Rate | Cost / base | Speed | Result |",
              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     failed = False
@@ -1416,7 +1433,24 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
                         ub_as[ub_as.index(u)] = base
                     if k:
                         new0[base] -= k
-                end_tags, now_tags = mil(ub_as), mil(ua)
+                # The other way: the engine converts a base unit to the civ's own unique unit that replaces it
+                # (run 20261111-160427-w5: Aksum kept its civ, and its Galley came back as a Dhow, which also has the
+                # class tag MAKE_TRADE_ROUTE). Compare the new unique unit as its base type; only a unique unit of
+                # the civ after the reload, and only with reload records.
+                ua_as = list(ua)
+                own_a = civ_unique_units(civ_a) if civ_a else set()
+                for u, n in (new0.items() if r_units else []):
+                    if n <= 0 or u not in own_a:
+                        continue
+                    base = need_cache["replaces"].get("UNIT_" + u, "").replace("UNIT_", "")
+                    k = min(n, gone0.get(base, 0))
+                    for _ in range(k):
+                        ua_as[ua_as.index(u)] = base
+                    if k:
+                        gone0[base] -= k
+                        lines.append(f"  - converted at the reload to the civ's own unique unit (compared as the base type): "
+                                     f"{k} {base} -> {u}")
+                end_tags, now_tags = mil(ub_as), mil(ua_as)
                 more, fewer = dict(now_tags - end_tags), dict(end_tags - now_tags)
                 if nxt == "AGE_EXPLORATION" and more.get("UNIT_CLASS_NAVAL") == 1:
                     del more["UNIT_CLASS_NAVAL"]
@@ -1825,7 +1859,7 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
     lines.append("")
     # Gates never stuck (CIVICGATE, TECHGATE), Catch-up Research speeds (CATCHUP), the civ age banner (UI lines).
     for part, part_failed in (gate_report("CIVICGATE", records("CIVICGATE")), gate_report("TECHGATE", records("TECHGATE")),
-                              catchup_report(records("CATCHUP")), banner_report(checks)):
+                              catchup_report(records("CATCHUP"), records("BANK")), banner_report(checks)):
         lines += part
         failed |= part_failed
     # Production log: Exploration items that the AI produced

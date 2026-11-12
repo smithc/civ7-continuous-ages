@@ -308,3 +308,11 @@ Gaps to close next, most important first:
    to Qajar, the open check of 0.5.0; the user chose to ship 0.5.1 with it); `live` (ocean_damage.js and
    old_resources.js, broken by game 1.5.1, fixed in b70d901; all 20 scenarios then passed, 20261110-155915-w4-all.md).
    Regroup: 20261110-154406-w1.
+   Set of 2026-11-11 for rule 2n (branch `fix/mastery-unlocks`, git 033dab7, 20261111-151045; 88 min on 6 workers): 17
+   of 19 results passed, with `live.py all` (25 scenarios, the 5 of rule 2n among them; 20261111-161500-w1-all.md) and
+   the five 0.5.1 saves. Not passed, both check gaps, fixed in `iterate.py` and re-analyzed (all 17 runs of the set: the
+   15 that passed stay PASS, the 2 change to PASS for these reasons only): default seed 3003 20261111-160029-w2 (the
+   catch-up check read a hidden science bank of about 970 at Modern turn 1 as research 2.35 times too fast; samples at a
+   check with a bank are now left out); seed 777 20261111-160427-w5 (Aksum kept its civ and its Galley came back as its
+   own unique Dhow, which has another class tag; such a conversion is now compared as the base type and named in the
+   report). Regroup was not run.
