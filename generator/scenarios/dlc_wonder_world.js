@@ -14,7 +14,12 @@ const checks = [];
 const expect = (name, ok, detail = {}) => { checks.push({ name, ok, detail }); caLive.log({ scenario: "dlc_wonder_world", phase: 1, name, ok, detail }); };
 const settle = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
 const depth = (n) => Game.ProgressionTrees.getNode(me, GameInfo.ProgressionTreeNodes.lookup(n)?.$hash)?.depthUnlocked ?? 0;
-async function grant(node) { caLive.grantNode(node); for (let i = 0; i < 10 && depth(node) < 1; i++) await settle(500); return depth(node) >= 1; }
+// The grant is sent up to 3 times, 10 s each: in the set 20261125-111722 (6 games at once) one request did not take
+// effect (20261125-113556-w1, gate depth 0).
+async function grant(node) {
+  for (let t = 0; t < 3 && depth(node) < 1; t++) { caLive.grantNode(node); for (let i = 0; i < 20 && depth(node) < 1; i++) await settle(500); }
+  return depth(node) >= 1;
+}
 async function research(node, target) {
   const pre = {};
   for (const r of Array.from(GameInfo.ProgressionTreePrereqs).filter((p) => p.Node === node)) pre[r.PrereqNode] = depth(r.PrereqNode) >= 1 || await grant(r.PrereqNode);

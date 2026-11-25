@@ -339,3 +339,10 @@ Gaps to close next, most important first:
    under load the unassign of the control step did not happen; the step now sends it again, 20261125-045306-w7 PASS under
    load); the save `CA_V060_01_0135` (a stale dump of the earlier crash; the game played its 20 turns; rerun
    20261125-045613-w4 PASS). In its 13 whole games, 58 packed AI units came back into their armies and none was missed.
+   20261125-111722 (git 8d50437, the stronger unit first in the repack; 83 min on 6 workers): 18 of 19 items passed, no
+   autosave hang. In its 13 whole games, 51 packed AI units came back, none missed. `live` 31 of 34; the 3 others passed
+   on a rerun: `dlc_wonder_world.js` (a debug grant of the Modern Breakthrough did not take effect under load; the setup
+   now sends it up to 3 times; 20261125-124128-w1), `ocean_land.js` with `StartAge=AGE_EXPLORATION` (the game crashed in
+   its own code, `Player::Processor::Update`, while the Exploration game started, before any transition; dump
+   1D448BC0AE7E91AB16; all 3 entries passed: 124502-w1, 124558-w1, 124656-w1), and `project_achievements.js` (that dump,
+   packed late, stopped the next start; 124855-w1).
