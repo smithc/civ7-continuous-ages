@@ -279,15 +279,6 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   worker 1) crashed in its first turns, before any transition (dump `1D448BC0AE7E91AB16`: an access violation in
   `Player::Processor::Update`, 20261125-114332-w1). Its dump was packaged about 27 minutes later and stopped the next
   scenario's start (20261125-121122-w1). Both scenarios passed on a rerun (124502-w1, 124855-w1).
-  Neither crash repeats from the same game state, so mod data or rules do not cause them (a deterministic game gives
-  the same `RandCalls.csv` for the same build, seed and settings). The crashed Catch-up game 20261125-025749-w4 made the
-  same 51,122 random calls as the passing games 20261125-041121-w6 and 115229-w4 (other builds, the same game) through
-  the end of the Exploration age; those two then loaded the Modern world. The crashed live game 20261125-114332-w1 made
-  the same 1,058 random calls as its passing rerun 124656-w1 (same build) in its turn-1 world setup. Neither moment
-  runs 0.7.0's new code: crash A came before any mod script of the new world, and rule 6c's rows exist only in the
-  Antiquity world; crash B came before any transition. Both came with 6 games at once; Windows logged no memory
-  exhaustion. About 290 test games ran on 1.5.1.41 (77 autoplay, about 210 live), with these 2 crashes. Not done: a
-  base-game control at that scale, to compare the rate.
 - **Crashes at game start.** About 3 of 60 test games crashed in the first minutes, in the game's
   audio engine. A retry ran clean each time. No crash happened later in a game. `iterate.py` now retries
   a run once when the game crashes before turn 5, and the report says so. One more crash, on
