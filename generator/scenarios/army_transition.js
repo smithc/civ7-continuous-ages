@@ -11,7 +11,8 @@
 // Phase 2 (the next world): the army holds as many units as before, of the same classes, with no plot of their own (the
 // test); slot 0 has as many land military units as before (no extra unit made from a shadow of a packed unit, none
 // lost); the loose Warrior is on its plot (control).
-// CAFleet=1 with StartAge=AGE_EXPLORATION: a Fleet Commander packs two Cogs as well, across the Modern transition.
+// CAFleet=1 with StartAge=AGE_EXPLORATION: a Fleet Commander packs a Cog and a Carrack as well (a Carrack has several
+// class tags; its shadow can carry any of them), across the Modern transition.
 // Negative control: --disable-rule army (the kept units are not put back into their army).
 const me = GameContext.localPlayerID;
 const checks = [];
@@ -79,7 +80,7 @@ expect(`setup: the commander packed its ${PACK.length} units`, !!army && army.un
 const before = { commander: c ? { x: c.location.x, y: c.location.y } : null, packed: packedIds.length, loose: loose ? state(loose.id) : null,
                  unitCount: army?.unitCount, capital: home, world: startWorld,
                  classes: packedIds.map((id) => classOf(Units.get(id))).sort() };
-// CAFleet=1 (a game that starts in the Exploration world): a Fleet Commander on the coast packs two Cogs as well.
+// CAFleet=1 (a game that starts in the Exploration world): a Fleet Commander on the coast packs a Cog and a Carrack.
 const fleetOn = (() => { try { return Number(Automation.getParameter("CurrentTest", "CAFleet") ?? 0) === 1; } catch (e) { return false; } })();
 let fleetCmd = null;
 if (fleetOn) {
@@ -95,14 +96,14 @@ if (fleetOn) {
     }
   }
   fleetCmd = fs ? await caLive.createUnitAndWait("UNIT_FLEET_COMMANDER", fs.p.x, fs.p.y) : null;
-  if (fs) { await caLive.createUnitAndWait("UNIT_COG", fs.a.x, fs.a.y); await caLive.createUnitAndWait("UNIT_COG", fs.b.x, fs.b.y); }
+  if (fs) { await caLive.createUnitAndWait("UNIT_COG", fs.a.x, fs.a.y); await caLive.createUnitAndWait("UNIT_CARRACK", fs.b.x, fs.b.y); }
   await settle();
   const fcan = fleetCmd ? Game.UnitCommands.canStart(fleetCmd.id, "UNITCOMMAND_PACK_ARMY", {}, false) : null;
   if (fcan?.Success) Game.UnitCommands.sendRequest(fleetCmd.id, "UNITCOMMAND_PACK_ARMY", {});
   await settle(3000);
   const f = fleetCmd ? Units.get(fleetCmd.id) : null;
   const fleet = f ? Armies.get(f.armyId) : null;
-  expect("setup: the Fleet Commander packed the two Cogs", !!fleet && fleet.unitCount === 2, { found: !!fs, canPack: !!fcan?.Success, unitCount: fleet?.unitCount,
+  expect("setup: the Fleet Commander packed the Cog and the Carrack",!!fleet && fleet.unitCount === 2, { found: !!fs, canPack: !!fcan?.Success, unitCount: fleet?.unitCount,
     at: f ? { x: f.location.x, y: f.location.y } : null });
 }
 // To the age end, slot 0 only ending its turns (with caLive.advance the AI plays slot 0 and unpacked the army: run
@@ -121,7 +122,7 @@ expect(`before the age end: the army still holds its ${PACK.length} units`, (arm
 if (fleetCmd) {
   const f2 = Units.get(fleetCmd.id);
   before.fleet = f2 ? { x: f2.location.x, y: f2.location.y, count: Armies.get(f2.armyId)?.unitCount } : null;
-  expect("before the age end: the fleet still holds the two Cogs", before.fleet?.count === 2, before.fleet);
+  expect("before the age end: the fleet still holds its two ships",before.fleet?.count === 2, before.fleet);
 }
 expect("the age is at its end", left() <= 0, { turn: Game.turn, left: left() });
 setInterval(() => { if (Players.get(me)?.isTurnActive) GameContext.sendTurnComplete(); }, 3000);  // ends with the page
@@ -151,8 +152,9 @@ if (prev.fleet) {
   const fc = commanders.find((u) => u.location.x === prev.fleet.x && u.location.y === prev.fleet.y);
   const fleet = fc ? Armies.get(fc.armyId) : null;
   const inFleet = fc ? units.filter((u) => u.id.id !== fc.id.id && u.armyId?.id === fc.armyId?.id) : [];
-  const cogs = units.filter((u) => GameInfo.Units.lookup(u.type)?.UnitType === "UNIT_COG");
-  expect("test: the Fleet Commander's fleet still holds its two Cogs, with no plot of their own", (fleet?.unitCount ?? 0) === 2 && inFleet.length === 2
+  const cogs = units.filter((u) => ["UNIT_COG", "UNIT_CARRACK"].includes(GameInfo.Units.lookup(u.type)?.UnitType));
+  expect("test: the Fleet Commander's fleet still holds its two ships (a Cog and a Carrack), with no plot of their own", (fleet?.unitCount ?? 0) === 2 && inFleet.length === 2
+    && inFleet.some((u) => GameInfo.Units.lookup(u.type)?.UnitType === "UNIT_CARRACK")
     && inFleet.every((u) => u.location.x < 0 || (u.location.x === fc.location.x && u.location.y === fc.location.y)),
     { fleetCommander: fc ? info(fc) : null, unitCount: fleet?.unitCount, inFleet: inFleet.map(info), cogs: cogs.map(info) });
 }

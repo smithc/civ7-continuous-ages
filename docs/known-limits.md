@@ -174,6 +174,10 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
 
 ## Open checks
 
+- **No project on the first turn of the Modern world (game 1.5.1.41).** In `project_achievements.js` the capital could
+  start no project on the Modern world's first turn, and the game gave no reason, in 2 of 3 runs (20261124-213628-w1,
+  20261125-004159-w1; it could in 20261124-215612-w1 and in all 7 runs on game 1.5.1.32). On the next turn it can.
+  Whether the base game does the same is not known (not run with `--control`). The scenario now asks on the next turn.
 - **One-time grants of a tech or civic at each world load (found with rule 2n, 2026-11-11).** At a world load the game
   attaches again the modifier unlocks of each node's current depth (that is how U-CAP-AGAIN adds settlement cap again).
   Many unlocks are grants, on nodes with and without a mastery: free units (a Merchant from Code of Laws, an Army

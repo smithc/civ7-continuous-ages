@@ -112,7 +112,8 @@ replaces the game's transition script with a copy that has the reset steps remov
   ends alone in a city. The base game then fills the army again from its new units; the mod keeps the units
   themselves, so up to version 0.6.0 every army came back empty and its units stood in the capital (a player report).
   Now the transition script puts a unit of the same class back into each army slot, for an Army Commander's land
-  units and a Fleet Commander's ships, for every civ. It takes a unit from a stack first (the capital first), then a
+  units and a Fleet Commander's ships, for every civ. The class is the class tag that the game wrote for the packed
+  unit; a unit with several class tags (a Carrack, for example) fits each of them. It takes a unit from a stack first (the capital first), then a
   unit that no shadow explains, then a unit alone in a city, the nearest to the commander first. It never takes a
   unit of another class, or a unit alone outside a city. When a city's own garrison has the same class as the moved
   unit, either of the two can go into the army. In a test game through the Modern transition, all 20 packed units of 6 civs came

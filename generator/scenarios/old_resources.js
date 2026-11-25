@@ -86,7 +86,8 @@ const { p, r, k } = pick;
 // Control, step 1: unassign R.
 let y = yields();
 const r1 = op(off(p));
-await until(() => !assigned().includes(r) && Object.keys(diff(yields(), y)).length > 0);
+// Up to 30 s: with 6 games at once the unassign came later than 15 s once (20261125-025320-w1: R still assigned).
+await until(() => !assigned().includes(r) && Object.keys(diff(yields(), y)).length > 0, 30000);
 const lossR = diff(yields(), y);
 expect(`control: unassigning ${r} changes the capital's yields`, r1 && Object.keys(lossR).length > 0, { lossR, assigned: assigned() });
 // Test: K on R's plot, assigned. The yields are read before put: the game can assign K when the Camp is built again.
