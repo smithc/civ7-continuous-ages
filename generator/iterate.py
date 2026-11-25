@@ -1941,13 +1941,27 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
             unjudged_bought = []
             bought = production_leaks(pfile, checked, item_col=3, names=item_names(), unjudged=unjudged_bought)
             town_known, bought = town_purchase_known(bought, qfile, base_world) if bought else ([], [])
+            # A repair: the same settlement bought the same building before (one per settlement; the game sells the
+            # repair of a damaged building, and CityPurchase.csv does not say which). Regression set 20261125-032604,
+            # human slot: a Roman settlement bought a Port as a town (U-TOWN-PURCHASE), was attacked from turn 96 on,
+            # and bought the Port again on turn 104. The first purchase is judged on its own.
+            earlier = defaultdict(list)
+            for (w, t, p, city), row in zip(log_worlds(pfile, base_world),
+                                            (r for r in csv.reader(pfile.open(encoding="utf-8", errors="replace"))
+                                             if len(r) > 2 and r[0].strip().isdigit())):
+                earlier[(p, city, row[3].strip() if len(row) > 3 else "")].append((w, t))
+            order = {"AGE_ANTIQUITY": 0, "AGE_EXPLORATION": 1, "AGE_MODERN": 2}
+            repairs = [b for b in bought if any((order[w0], t0) < (order[b[0]], b[1]) for w0, t0 in earlier[(b[2], b[3], b[4])])]
+            bought = [b for b in bought if b not in repairs]
             lines += ["## Later-age items bought before the civ's gate (leaks)", ""]
             lines += [f"- LEAK FAIL: {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}" for w, t, p, city, item, ca in bought[:25]]
             lines += [f"- KNOWN LIMIT (U-TOWN-PURCHASE): {w}, turn {t}, player {p} ({city}, a town; tag {', '.join(tg)}): {item} "
                       f"with civ age {ca}" for w, t, p, city, item, ca, tg in town_known[:25]]
+            lines += [f"- REPAIR (information): {w}, turn {t}, player {p} ({city}): {item} with civ age {ca}; the settlement "
+                      f"bought it before" for w, t, p, city, item, ca in repairs[:25]]
             if bought:
                 failed = True
-            elif not town_known:
+            elif not town_known and not repairs:
                 lines.append("- none")
             if unjudged_bought:
                 lines.append(f"Not judged (information): {len(unjudged_bought)} gated purchases after the last check of their "

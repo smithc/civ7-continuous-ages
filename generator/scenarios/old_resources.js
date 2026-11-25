@@ -85,11 +85,18 @@ if (!pick) return { ok: false, error: "no assigned resource of the capital with 
 const { p, r, k } = pick;
 // Control, step 1: unassign R.
 let y = yields();
-const r1 = op(off(p));
-// Up to 30 s: with 6 games at once the unassign came later than 15 s once (20261125-025320-w1: R still assigned).
-await until(() => !assigned().includes(r) && Object.keys(diff(yields(), y)).length > 0, 30000);
+// With 6 games at once R stayed assigned in 2 runs (20261125-025320-w1, 035702-w1; alone it passed 4 times): the
+// request is sent again, up to 3 times, and the game's pre-check answer is in the detail.
+let r1 = false, tries = 0, pre = null;
+for (; tries < 3 && assigned().includes(r); tries++) {
+  pre = Game.PlayerOperations.canStart(me, PlayerOperationTypes.ASSIGN_RESOURCE, off(p), false);
+  r1 = op(off(p)) || r1;
+  await until(() => !assigned().includes(r), 10000);
+}
+await until(() => !assigned().includes(r) && Object.keys(diff(yields(), y)).length > 0, 15000);
 const lossR = diff(yields(), y);
-expect(`control: unassigning ${r} changes the capital's yields`, r1 && Object.keys(lossR).length > 0, { lossR, assigned: assigned() });
+expect(`control: unassigning ${r} changes the capital's yields`, r1 && Object.keys(lossR).length > 0,
+  { lossR, assigned: assigned(), sent: r1, tries, pre: { ok: !!pre?.Success, reasons: pre?.FailureReasons ?? null }, turn: Game.turn });
 // Test: K on R's plot, assigned. The yields are read before put: the game can assign K when the Camp is built again.
 y = yields();
 const kPut = await put(p, k, pick.imp);
