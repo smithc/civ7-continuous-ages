@@ -762,6 +762,38 @@ def reload_slots(transitions: list, res_batches: list, n_batches: int) -> tuple[
     return slots, [a for a in ages if by_age and a not in seen]
 
 
+def army_report(armies: list) -> tuple[list[str], bool]:
+    """Units packed in commanders through each world transition (a player report of 2026-11-13). The ARMIES records of
+    the transition script: 'before' the unit step, the shadows of packed units on each commander's plot (armyShadows);
+    'after' it, each commander's army count. A commander on a plot with N such shadows must hold N units after the step
+    (else ARMY FAIL). A plot with shadows and no commander is listed (information)."""
+    lines = ["## Armies at world transitions (ARMIES)", ""]
+    if not armies:
+        return lines + ["- no ARMIES records (no commander at a transition, or a build before 2026-11-24)", ""], False
+    failed, rows, total, kept = False, [], 0, 0
+    keys = sorted({(r.get("age") or "?", r.get("id")) for r in armies}, key=lambda k: (k[0], k[1] if k[1] is not None else -1))
+    for age, pid in keys:
+        before = next((r for r in armies if (r.get("age") or "?") == age and r.get("id") == pid and r.get("when") == "before"), None)
+        after = next((r for r in armies if (r.get("age") or "?") == age and r.get("id") == pid and r.get("when") == "after"), None)
+        if before is None:
+            continue
+        for plot, n in (before.get("armyShadows") or {}).items():
+            total += n
+            cmd = next((c for c in (after or {}).get("commanders", []) if c.get("at") == plot), None)
+            if cmd is None:
+                rows.append(f"| {age} | {pid} | {plot} | {n} | no commander on the plot (information) |")
+                continue
+            got = cmd.get("count") or 0
+            kept += min(got, n)
+            ok = got >= n
+            failed |= not ok
+            rows.append(f"| {age} | {pid} | {plot} ({cmd.get('type')}) | {n} | {got}{'' if ok else ' ARMY FAIL'} |")
+    lines += [f"- packed units at the transitions: {total}; back in their army after the unit step: {kept}", ""]
+    if rows:
+        lines += ["| New world | Player | Commander's plot | Packed (shadows) | In the army after |", "| --- | --- | --- | --- | --- |"] + rows + [""]
+    return lines, failed
+
+
 def minor_players_report(minors: list, reload_minors: list) -> list[str]:
     """Minor players through each world transition (game 1.5.1 runs the transition's unit steps for city-states):
     the age end (MINORS, when "end", UI.log) against the reload (RELOADMINOR 'before' and 'after', Scripting.log)
@@ -1859,7 +1891,8 @@ def analyze(start: datetime, autoplay_out: str, workdir: Path, expect_transition
     lines.append("")
     # Gates never stuck (CIVICGATE, TECHGATE), Catch-up Research speeds (CATCHUP), the civ age banner (UI lines).
     for part, part_failed in (gate_report("CIVICGATE", records("CIVICGATE")), gate_report("TECHGATE", records("TECHGATE")),
-                              catchup_report(records("CATCHUP"), records("BANK")), banner_report(checks)):
+                              catchup_report(records("CATCHUP"), records("BANK")), banner_report(checks),
+                              army_report(records("ARMIES"))):
         lines += part
         failed |= part_failed
     # Production log: Exploration items that the AI produced

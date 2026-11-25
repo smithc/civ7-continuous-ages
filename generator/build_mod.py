@@ -36,7 +36,7 @@ import classification as cls
 from build_test1 import transition_script, write_xml, EXCLUDE_PATTERNS, TEXT_EXCLUDE
 
 MOD_ID = "continuous-ages"
-MOD_VERSION = "0.6.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
+MOD_VERSION = "0.7.0"  # the release version (docs/releasing.md); the zip name and build-info.json use it
 OLD_MOD_IDS = ["continuous-ages-test1"]
 MOD_NAME = "Continuous Ages"
 # Plain text in the modinfo, not text keys: the Steam Workshop uploader shows the modinfo's Name and
@@ -45,7 +45,7 @@ MOD_NAME = "Continuous Ages"
 MOD_DESCRIPTION = """One continuous game. Each civilization moves through the ages at its own pace, and nothing resets at an age transition. A strong civilization can keep its lead and snowball.
 
 HOW IT WORKS
-- Your own age: one joined tech tree with two Breakthrough techs. Research the Exploration Breakthrough and the Modern Breakthrough to enter the next age, when you are ready. A small banner shows "Your age / World age".
+- Your own age: one joined tech tree with two Breakthrough techs. Research the Exploration Breakthrough and the Modern Breakthrough to enter the next age, when you are ready. A small banner shows "Your age / World age" (move or hide it in Options, Interface).
 - Civics have their own Breakthroughs: the joined civic tree has an Exploration and a Modern Breakthrough too. Research them with culture to open the next age's civics, also before your tech Breakthrough. Culture always has a use.
 - The world still moves on: the world age changes at the normal time. Crises, legacy paths, treasure fleets, the Distant Lands and victories start with the world age, as in the base game. Religion too: missionaries are trained only in the Exploration world, with no Breakthrough needed.
 - No reset: cities stay cities, armies keep all their units, gold is not capped, old resources stay, and your techs, civics, policies and buildings stay.
@@ -64,10 +64,12 @@ RECOMMENDED SETTINGS
 - Start age: Antiquity.
 - AI civ selection at age transition: Mirroring (default), or Current Civilization Persistence.
 
-NEW IN 0.6.0
-- Masteries keep their first-level bonuses after an age transition. Up to 0.5.1, a tech or civic that you mastered before the move to the next age lost the bonuses of its first level in the next age. Examples: Shipbuilding's protection from deep-ocean damage and its rule that deep ocean no longer ends a ship's move (a player report), the specialist limit of Currency, Education, Urban Planning, Capitalism and Electricity, the tradition slot of Code of Laws and Authority, the pantheon of Mysticism.
-- Games saved with 0.5.1 continue with 0.6.0. Techs and civics that you research or master after the update work at once. Bonuses that were already lost come back at the game's next age transition. Until then, a specialist limit or a tradition slot of a tech that you researched before the update and master after it can count twice.
-- Newly documented known limit, also in earlier versions: each civilization's settlement limit rises at each age transition, because the game carries the limit into the next age and adds the bonus of some techs and civics again. In a test game each civilization gained 2 to 5 at the move to Exploration and 5 to 10 at the move to Modern.
+NEW IN 0.7.0
+- Built and tested for Civilization VII 1.5.1.41. The game update turns mods off: turn Continuous Ages on again in Add-ons.
+- Units packed in a commander stay in the army at an age transition. Up to 0.6.0, the units came out of every Army Commander and Fleet Commander and stood in the capital (a player report). This also fixes the armies of AI civilizations.
+- Land units can cross deep ocean in the Antiquity age when your civilization can: with the Modern Breakthrough, or with Shipbuilding mastered. Up to 0.6.0, Scouts and other land units could not leave the coast until the world reached the Exploration age (a player report).
+- The age banner can move: Options, Interface, Continuous Ages, Age banner position (top center, lower top center, the four corners, bottom center, or hidden). Use it when the banner covers the banner of another mod (a player report).
+- Games saved with 0.6.0 continue with 0.7.0. Armies stay packed from the next age transition on; an army that is already empty stays empty. The deep-ocean change comes at once for a civilization that researches its Exploration Breakthrough after the update. A civilization that had it before the update keeps the old rule until the Exploration age.
 
 STATUS
 Playable, in testing. Full AI games play through all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.
@@ -854,6 +856,28 @@ class WorldBuild:
             defs.append(m)
             lines.append("INSERT INTO TraitModifiers (TraitType, ModifierId) VALUES ('TRAIT_LEADER_MAJOR_CIV', 'CA_AQ_WATER_PROTECTION_BEFORE_GATE');")
             lines.append("")
+        # 6c. Land units on deep ocean. The Antiquity data makes deep ocean invalid terrain for every unit of every player
+        # (AGE_ANTIQUITY_MOD_OCEAN_TERRAIN_INVALID, a PlayerModifiers row). The Exploration rule that opens it again
+        # (MOD_TECH_OCEAN_TRAVEL, at the gate in the baseline) names naval units only, so a land unit with deep-water
+        # embarkation (the Modern Breakthrough, or Shipbuilding's mastery) still could not leave the coast in the
+        # Antiquity world (a player report of 2026-11-21: "Scouts do not cross the ocean until the main game reaches
+        # Exploration, even when I have reached Modern"). The Exploration and Modern worlds have no such block: there the
+        # embarkation type decides. This copy for land units does the same at the civ's Exploration Breakthrough.
+        if self.world == "AGE_ANTIQUITY" and "6c" not in disabled_rules(args):
+            if not self.sim.db.execute("SELECT 1 FROM Modifiers WHERE ModifierId = 'AGE_ANTIQUITY_MOD_OCEAN_TERRAIN_INVALID'").fetchone():
+                raise SystemExit("rule 6c: AGE_ANTIQUITY_MOD_OCEAN_TERRAIN_INVALID not found in the Antiquity data (game patch?)")
+            m = ET.Element("{GameEffects}Modifier", {"id": "CA_AQ_LAND_OCEAN_TRAVEL", "collection": "COLLECTION_PLAYER_UNITS",
+                                                    "effect": "EFFECT_ADJUST_UNIT_VALID_TERRAIN"})
+            reqs = ET.SubElement(m, "{GameEffects}SubjectRequirements")
+            r = ET.SubElement(reqs, "{GameEffects}Requirement", {"type": "REQUIREMENT_UNIT_DOMAIN_MATCHES"})
+            ET.SubElement(r, "{GameEffects}Argument", {"name": "UnitDomain"}).text = "DOMAIN_LAND"
+            ET.SubElement(m, "{GameEffects}Argument", {"name": "TerrainType"}).text = "TERRAIN_OCEAN"
+            ET.SubElement(m, "{GameEffects}Argument", {"name": "Valid"}).text = "true"
+            defs.append(m)
+            lines += ["-- 6c. Deep ocean is valid terrain for land units of a civ past its Exploration Breakthrough (Antiquity world);",
+                      "--     the embarkation type then decides, as in the Exploration world.",
+                      "INSERT INTO ProgressionTreeNodeUnlocks (ProgressionTreeNodeType, TargetKind, TargetType, UnlockDepth, Hidden) "
+                      f"VALUES ('{GATES['AGE_EXPLORATION']}', 'KIND_MODIFIER', 'CA_AQ_LAND_OCEAN_TRAVEL', 1, 1);", ""]
         if "civic-gate" in disabled_rules(args):
             # Negative control (test build): the 0.2.1 dead end again. A prereq in another tree never opens, so no
             # civ can research the Exploration civic Breakthrough; the BANK and CIVICGATE checks must fail.
@@ -1176,6 +1200,15 @@ def text_xml() -> str:
                   f"{NAME[age]} civic tree. The {NAME[age]} technologies need the {NAME[age]} Breakthrough technology."),
                  (f"LOC_{CIVIC_GATE_MODIFIER[age]}_DESCRIPTION", f"Opens the {NAME[age]} civics.")]
     rows += [("LOC_CA_YOUR_AGE", "Your age"), ("LOC_CA_WORLD_AGE", "World age")]
+    # The age banner's position (Options > Interface; ui/ca-civ-age.js).
+    rows += [("LOC_OPTIONS_GROUP_CONTINUOUS_AGES", "Continuous Ages"),
+             ("LOC_CA_OPTION_BANNER_POSITION", "Age banner position"),
+             ("LOC_CA_OPTION_BANNER_POSITION_DESCRIPTION",
+              "Where the banner with your age and the world age shows. Choose another place if it covers the banner of another mod."),
+             ("LOC_CA_BANNER_TOP_CENTER", "Top center"), ("LOC_CA_BANNER_TOP_CENTER_LOWER", "Top center, lower"),
+             ("LOC_CA_BANNER_TOP_LEFT", "Top left"), ("LOC_CA_BANNER_TOP_RIGHT", "Top right"),
+             ("LOC_CA_BANNER_BOTTOM_LEFT", "Bottom left"), ("LOC_CA_BANNER_BOTTOM_CENTER", "Bottom center"),
+             ("LOC_CA_BANNER_BOTTOM_RIGHT", "Bottom right"), ("LOC_CA_BANNER_HIDDEN", "Hidden")]
     rows += [("LOC_CA_CATCHUP_NAME", "Catch-up Research"),
              ("LOC_CA_CATCHUP_DESCRIPTION",
               "Continuous Ages: after each world age transition, all techs and civics of earlier ages, and the "
@@ -1892,6 +1925,8 @@ RULE_PROOFS = {
     "5j": "legacy-civ items before the Breakthrough tech (LEAK FAIL)",
     "6": "deep_ocean_turn.js",
     "6b": "ocean_damage.js",
+    "6c": "ocean_land.js (a Scout on the coast enters deep ocean with the Modern Breakthrough, or with Shipbuilding mastered; "
+          "with the Exploration Breakthrough only it does not; the same in the Exploration world)",
     "7": "test setting",
 }
 
@@ -1905,6 +1940,8 @@ def check_rule_proofs(sql: str, world: str) -> None:
 # Negative controls (build_mod.py --disable-rule NAME, test builds only): a build without a rule, to show that
 # the rule's test fails without it (docs/testing.md, "A new check must fail once").
 DISABLE_RULES = {"2i": "unique units block their base units again", "6b": "no deep-ocean damage in the Antiquity world",
+                 "6c": "land units cannot enter deep ocean in the Antiquity world (up to 0.6.0)",
+                 "army": "units packed in a commander come back unpacked, in the capital, after a world transition (up to 0.6.0)",
                  "meet": "no meeting flag at the Exploration Breakthrough", "civic-gate": "the 0.2.1 civic dead end",
                  "oldres": "kept resources of an earlier age have no effects and the first age's text (up to 0.4.0)",
                  "worldproj": "final projects can be built in every world age (up to 0.4.0)",
@@ -2139,7 +2176,14 @@ def main() -> None:
     (OUT / "config").mkdir(parents=True, exist_ok=True)
     (OUT / "config" / "continuous-ages-config.xml").write_text(config_xml(), encoding="utf-8")
     (OUT / "scripts").mkdir(parents=True, exist_ok=True)
-    (OUT / "scripts" / "age-transition-post-load.js").write_text(transition_script(game), encoding="utf-8")
+    script = transition_script(game)
+    if "army" in disabled_rules(args):
+        # Negative control (test build): kept packed units are not put back into their army (up to 0.6.0).
+        marker = "var g_caRepackArmies = true; // CA_REPACK_ARMIES"
+        if marker not in script:
+            raise SystemExit("--disable-rule army: the marker CA_REPACK_ARMIES is not in the transition script")
+        script = script.replace(marker, "var g_caRepackArmies = false; // CA_REPACK_ARMIES")
+    (OUT / "scripts" / "age-transition-post-load.js").write_text(script, encoding="utf-8")
     (OUT / "ui").mkdir(parents=True, exist_ok=True)
     for f in ("ca-civ-age.js", "ca-tree-layout.js"):
         shutil.copyfile(Path(__file__).parent / "ui" / f, OUT / "ui" / f)

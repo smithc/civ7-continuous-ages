@@ -92,7 +92,7 @@ replaces the game's transition script with a copy that has the reset steps remov
 | Item | Base game | Continuous Ages |
 | --- | --- | --- |
 | Techs and civics | Each age has new trees | Kept (one joined tree) |
-| Units | Commanders are kept with their promotions (only commanders have promotions); other military units are remade as the new age's types, and units that the armies do not take back can be lost | Kept as they are: type and position; commanders with their promotions. Religious units are removed at the Modern load (rule 2m) |
+| Units | Commanders are kept with their promotions (only commanders have promotions); other military units are remade as the new age's types, and units that the armies do not take back can be lost | Kept as they are: type and position, and packed units stay in their commander's army; commanders with their promotions. Religious units are removed at the Modern load (rule 2m) |
 | Cities | All cities except the capital become towns | Cities stay cities |
 | Gold and influence | Capped | Not capped |
 | Settlement cap | Kept (each age has a minimum) | Kept, and it rises at each transition: techs and civics add their +1 again (known limit U-CAP-AGAIN, see [Masteries](#masteries)) |
@@ -106,6 +106,12 @@ replaces the game's transition script with a copy that has the reset steps remov
 
 - Every unit is kept as it is, except religious units: the game removes them at the load into the Modern world
   (rule 2m, see [World systems](#world-systems)).
+- **Units packed in a commander stay packed.** At the load of a new world, the game takes the packed units out of
+  their army and puts them in the capital. The base game then fills the army again from its new units; the mod keeps
+  the units themselves, so up to version 0.6.0 every army came back empty and its units stood in the capital (a player
+  report). Now the transition script puts each kept unit back into its army: an Army Commander's land units and a Fleet
+  Commander's ships, for every civ. In a test game through the Modern transition, all 20 packed units of 6 civs came
+  back into their armies (run 20261124-224126-w1; without the fix, none: 20261124-224407-w1).
 - The game also creates replacement units for some units ("shadows"). The mod uses a shadow only to
   replace a unit that the game removed (for example a unique unit of the civ's previous civ). The
   replacement keeps the removed unit's class, and it is the best unit of that class that the civ
@@ -261,6 +267,13 @@ An upgrade needs the civ to be able to build the target unit, so the age gates a
   (ocean travel, embarking, deep-ocean trade, and the Exploration age-balance rules).
 - The Exploration rule that deep ocean ends a unit's turn until Shipbuilding is loaded, so
   Shipbuilding keeps its meaning for a leading civ.
+- **Land units on deep ocean (rule 6c).** The Antiquity data makes deep ocean invalid terrain for every unit
+  (`AGE_ANTIQUITY_MOD_OCEAN_TERRAIN_INVALID`). The Exploration rule that opens it again names ships only. So up to
+  version 0.6.0, in the Antiquity world, an embarked land unit could not leave the coast, also for a civ with the
+  Modern Breakthrough or with Shipbuilding mastered (a player report: "Scouts do not cross the ocean until the main
+  game reaches Exploration"). Now deep ocean is valid terrain for the land units of a civ past its Exploration
+  Breakthrough, and the embarkation type decides, as in the Exploration world: shallow water at the Exploration
+  Breakthrough, deep water with Shipbuilding's mastery or the Modern Breakthrough. Proof: `scenarios/ocean_land.js`.
 - **Deep-ocean damage.** In the Antiquity world, a unit on deep ocean takes the Exploration damage (11
   to 20 each turn) until its civ has Shipbuilding, as in the Exploration world. The amount is a world
   value that only the Exploration data sets, so up to version 0.3.0 nothing took damage in the
@@ -356,3 +369,9 @@ its own Breakthrough: deep-ocean damage and meeting the civs of the Distant Land
 
 A small banner at the top of the screen shows "Your age: X · World age: Y". It is the only new
 interface element.
+
+Its place is an option: **Options > Interface > Continuous Ages > Age banner position**. The choices are top
+center (the default), top center lower, top left, top right, bottom left, bottom center, bottom right, and
+hidden. Choose another place if the banner covers the banner of another mod (a player report). The choice is
+kept between game sessions (in the game's UI storage), and it changes the banner at once. Proof:
+`scenarios/banner_position.js`.

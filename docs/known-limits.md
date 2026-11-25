@@ -30,6 +30,21 @@ reset of a civ's progress except where noted.
 
 ## Updating a game in progress
 
+### From 0.6.0 to 0.7.0
+
+- **Units packed in a commander** stay packed at every world transition after the update. The change is in the
+  transition script, which runs at the transition, so a game saved with 0.6.0 gets it at its next transition. An army
+  that came back empty before the update stays empty: pack its units again by hand.
+- **Rule 6c (land units on deep ocean in the Antiquity world)** is a hidden unlock of the Exploration Breakthrough. A civ
+  that researches its Breakthrough after the update gets it at once. A civ that had its Breakthrough before the update
+  gets it at the next world transition, where the Exploration world has no such block anyway: in a game saved in the
+  Antiquity world, its land units still cannot cross deep ocean until the Exploration world. This follows from the
+  engine fact of [From 0.4.0 to 0.5.0](#from-040-to-050) (a modifier row that a new version adds does not attach when
+  an older save loads); it was not run for this rule.
+- The age banner's position option needs no new game.
+- `tools/savecompat.py --old <the published 0.6.0 zip>` (2026-11-24, game 1.5.1.41): compatible, no saved id removed;
+  the Antiquity world adds one modifier and one unlock row (rule 6c).
+
 ### From 0.5.1 to 0.6.0 (rule 2n)
 
 Rule 2n keeps the first-level bonuses of a mastered tech or civic across a world transition (see
@@ -338,6 +353,14 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   unique units gone, so any other duplicate still fails. Other DLC content of an earlier age (unique
   buildings, civic trees) was not checked. To be fixed in a later version: copy the DLC content of the
   other ages too.
+  The same holds for DLC wonders, in both directions (an offline query of the game data with and without DLC,
+  2026-11-24). A DLC wonder's unlock rows load only in its own world age. A later-age DLC wonder does not exist in an
+  earlier world at all: for example the Battersea Power Station (Great Britain DLC, Electricity's mastery) loads only
+  from the Modern world on, so a Modern civ cannot build it in the Exploration world. An earlier-age DLC wonder
+  exists in the later worlds but has no unlock row there (for example the Mausoleum at Halicarnassus, Iron Working,
+  and the Globe Theatre, Sovereignty). When the world reaches the wonder's age, a civ that completed the node in an
+  earlier world can build it at once (`dlc_wonder_world.js`, 20261124-222059-w1). A player report of 2026-11-14 (the
+  Battersea Power Station "disappeared") was not reproduced with this test.
 
 ## Ideas not built
 
