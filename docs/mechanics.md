@@ -114,9 +114,13 @@ replaces the game's transition script with a copy that has the reset steps remov
   Now the transition script puts a unit of the same class back into each army slot, for an Army Commander's land
   units and a Fleet Commander's ships, for every civ. The class is the class tag that the game wrote for the packed
   unit; a unit with several class tags (a Carrack, for example) fits each of them. It takes a unit from a stack first (the capital first), then a
-  unit that no shadow explains, then a unit alone in a city, the nearest to the commander first. It never takes a
-  unit of another class, or a unit alone outside a city. When a city's own garrison has the same class as the moved
-  unit, either of the two can go into the army. In a test game through the Modern transition, all 20 packed units of 6 civs came
+  unit that no shadow explains, then a unit alone in a city; in each of these groups the stronger unit (the higher
+  production cost) first, then the nearest to the commander. It never takes a unit of another class, or a unit alone
+  outside a city. The game gives no way to tell a unit that it took out of the army from a city's garrison of the
+  same class on the same plot (its shadows carry no unit id, and the units' values are the same). So a garrison can
+  go into the army in place of a packed unit of the same class and the same cost (for example one Warrior for
+  another), and the packed unit stays in the city. A stronger packed unit goes back before a weaker garrison (a
+  Swordsman before a Warrior: `army_transition.js`). In a test game through the Modern transition, all 20 packed units of 6 civs came
   back into their armies (run 20261124-224126-w1; without the fix, none: 20261124-224407-w1). One case is still
   open: at a civ change the game removes a unique unit of the previous civ that is packed in an army (for example a
   Medjay), and no replacement comes back ([Known limits](known-limits.md#open-checks)).

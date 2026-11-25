@@ -56,6 +56,13 @@ for (let r = 2; r < 10 && !spot.loose; r++) {
   }
 }
 if (!spot.loose) return { ok: false, error: "no free land plot for the loose Warrior" };
+// CAGarrison=1: a unit of the first packed unit's type stands on the capital's plot, made before the army's units (so
+// it is older: units of one rank and distance are taken in id order). The game puts the units it takes out of the army
+// there too; the garrison must stay out of the army (the repack must not take it).
+const garrisonOn = (() => { try { return Number(Automation.getParameter("CurrentTest", "CAGarrison") ?? 0) === 1; } catch (e) { return false; } })();
+// CAGarrisonType=<unit type>: the garrison's type (default: the first packed unit's type).
+const garrisonType = (() => { try { const t = Automation.getParameter("CurrentTest", "CAGarrisonType"); return t ? `UNIT_${`${t}`.trim().replace(/^UNIT_/, "")}` : PACK[0]; } catch (e) { return PACK[0]; } })();
+const garrison = garrisonOn ? await caLive.createUnitAndWait(garrisonType, home.x, home.y) : null;
 const cmd = await caLive.createUnitAndWait("UNIT_ARMY_COMMANDER", spot.p.x, spot.p.y);
 const made = [];
 for (const [i, type] of PACK.entries()) made.push(await caLive.createUnitAndWait(type, spot.n[i].x, spot.n[i].y));
@@ -79,7 +86,13 @@ expect(`setup: the commander packed its ${PACK.length} units`, !!army && army.un
   { canPack: !!can?.Success, unitCount: army?.unitCount, commander: c ? state(cmd.id) : null, made: made.map((u) => u ? state(u.id) : null), packedIds });
 const before = { commander: c ? { x: c.location.x, y: c.location.y } : null, packed: packedIds.length, loose: loose ? state(loose.id) : null,
                  unitCount: army?.unitCount, capital: home, world: startWorld,
-                 classes: packedIds.map((id) => classOf(Units.get(id))).sort() };
+                 classes: packedIds.map((id) => classOf(Units.get(id))).sort(),
+                 types: packedIds.map((id) => GameInfo.Units.lookup(Units.get(id)?.type)?.UnitType).sort() };
+if (garrisonOn) {
+  const gu = garrison ? Units.get(garrison.id) : null;
+  before.garrison = gu ? { id: garrison.id.id, type: GameInfo.Units.lookup(gu.type)?.UnitType, x: gu.location.x, y: gu.location.y } : null;
+  expect("setup: a garrison of the packed type on the capital's plot", !!gu && gu.location.x === home.x && gu.location.y === home.y, { garrison: before.garrison, capital: home });
+}
 // CAFleet=1 (a game that starts in the Exploration world): a Fleet Commander on the coast packs a Cog and a Carrack.
 const fleetOn = (() => { try { return Number(Automation.getParameter("CurrentTest", "CAFleet") ?? 0) === 1; } catch (e) { return false; } })();
 let fleetCmd = null;
@@ -165,12 +178,22 @@ expect(`test: the commander's army still holds its ${prev.packed} units`, (army?
 const classes = inArmy.map(classOf).sort();
 expect("test: the army holds units of the same classes as before", JSON.stringify(classes) === JSON.stringify(prev.classes),
   { before: prev.classes, now: classes, inArmy: inArmy.map(info) });
+const types = inArmy.map((u) => GameInfo.Units.lookup(u.type)?.UnitType).sort();
+expect("test: the army holds units of the same types as before", JSON.stringify(types) === JSON.stringify(prev.types),
+  { before: prev.types, now: types, inArmy: inArmy.map(info) });
 // A packed unit has no plot of its own (-9999, -9999); one on the commander's plot counts too.
 expect("test: the packed units are with the commander (no plot of their own)", inArmy.length === prev.packed
   && inArmy.every((u) => u.location.x < 0 || (u.location.x === cmd.location.x && u.location.y === cmd.location.y)), { inArmy: inArmy.map(info) });
 expect("test: slot 0 has as many land military units as at the age end (no extra unit, none lost)",
   landMilitary.length === prev.landMilitary,
   { before: prev.landMilitary, now: landMilitary.length, beforeTypes: prev.landTypes, nowTypes: landMilitary.map((u) => GameInfo.Units.lookup(u.type)?.UnitType.replace(/^UNIT_/, "")).sort() });
+if (prev.garrison) {
+  // The load can renumber unit ids: the high part changed and the low 16 bits stayed (run 20261125-105727-w1: 589831
+  // before, 524295 after). Match by the low 16 bits.
+  const g = units.find((u) => (u.id.id & 0xFFFF) === (prev.garrison.id & 0xFFFF));
+  expect("test: the garrison on the capital's plot stays there, out of the army", !!g && !inArmy.includes(g)
+    && g.location.x === prev.garrison.x && g.location.y === prev.garrison.y, { before: prev.garrison, now: g ? info(g) : null, inArmy: inArmy.map(info) });
+}
 const looseNow = prev.loose ? warriors.find((u) => u.location.x === prev.loose.x && u.location.y === prev.loose.y && !inArmy.includes(u)) : null;
 expect("control: the Warrior on the map kept its plot", !!looseNow, { before: prev.loose, warriors: warriors.map(info) });
 return { ok: checks.every((x) => x.ok), failed: checks.filter((x) => !x.ok), checks, units: units.map(info) };
