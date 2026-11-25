@@ -68,8 +68,9 @@ NEW IN 0.7.0
 - Built and tested for Civilization VII 1.5.1.41. The game update turns mods off: turn Continuous Ages on again in Add-ons.
 - Units packed in a commander stay in the army at an age transition. Up to 0.6.0, the units came out of every Army Commander and Fleet Commander and stood in the capital (a player report). This also fixes the armies of AI civilizations.
 - Land units can cross deep ocean in the Antiquity age when your civilization can: with the Modern Breakthrough, or with Shipbuilding mastered. Up to 0.6.0, Scouts and other land units could not leave the coast until the world reached the Exploration age (a player report).
-- The age banner can move: Options, Interface, Continuous Ages, Age banner position (top center, lower top center, the four corners, bottom center, or hidden). Use it when the banner covers the banner of another mod (a player report).
+- The age banner can move: Options, Interface, Continuous Ages, Age banner position (Top center, Top center lower, the four corners, Bottom center, or Hidden). Use it when the banner covers the banner of another mod (a player report).
 - Games saved with 0.6.0 continue with 0.7.0. Armies stay packed from the next age transition on; an army that is already empty stays empty. The deep-ocean change comes at once for a civilization that researches its Exploration Breakthrough after the update. A civilization that had it before the update keeps the old rule until the Exploration age.
+- Known problem, also in earlier versions: when your civilization changes at an age transition, a unique unit of the old civilization that is packed in a commander (for example a Medjay) is lost. Unpack such units before the transition.
 
 STATUS
 Playable, in testing. Full AI games play through all three ages at all four game speeds in automated tests. Human play through an age transition has had less testing. Please report problems.
@@ -1205,7 +1206,7 @@ def text_xml() -> str:
              ("LOC_CA_OPTION_BANNER_POSITION", "Age banner position"),
              ("LOC_CA_OPTION_BANNER_POSITION_DESCRIPTION",
               "Where the banner with your age and the world age shows. Choose another place if it covers the banner of another mod."),
-             ("LOC_CA_BANNER_TOP_CENTER", "Top center"), ("LOC_CA_BANNER_TOP_CENTER_LOWER", "Top center, lower"),
+             ("LOC_CA_BANNER_TOP_CENTER", "Top center"), ("LOC_CA_BANNER_TOP_CENTER_LOWER", "Top center lower"),
              ("LOC_CA_BANNER_TOP_LEFT", "Top left"), ("LOC_CA_BANNER_TOP_RIGHT", "Top right"),
              ("LOC_CA_BANNER_BOTTOM_LEFT", "Bottom left"), ("LOC_CA_BANNER_BOTTOM_CENTER", "Bottom center"),
              ("LOC_CA_BANNER_BOTTOM_RIGHT", "Bottom right"), ("LOC_CA_BANNER_HIDDEN", "Hidden")]

@@ -111,7 +111,9 @@ replaces the game's transition script with a copy that has the reset steps remov
   the units themselves, so up to version 0.6.0 every army came back empty and its units stood in the capital (a player
   report). Now the transition script puts each kept unit back into its army: an Army Commander's land units and a Fleet
   Commander's ships, for every civ. In a test game through the Modern transition, all 20 packed units of 6 civs came
-  back into their armies (run 20261124-224126-w1; without the fix, none: 20261124-224407-w1).
+  back into their armies (run 20261124-224126-w1; without the fix, none: 20261124-224407-w1). One case is still
+  open: at a civ change the game removes a unique unit of the previous civ that is packed in an army (for example a
+  Medjay), and no replacement comes back ([Known limits](known-limits.md#open-checks)).
 - The game also creates replacement units for some units ("shadows"). The mod uses a shadow only to
   replace a unit that the game removed (for example a unique unit of the civ's previous civ). The
   replacement keeps the removed unit's class, and it is the best unit of that class that the civ
@@ -273,7 +275,10 @@ An upgrade needs the civ to be able to build the target unit, so the age gates a
   Modern Breakthrough or with Shipbuilding mastered (a player report: "Scouts do not cross the ocean until the main
   game reaches Exploration"). Now deep ocean is valid terrain for the land units of a civ past its Exploration
   Breakthrough, and the embarkation type decides, as in the Exploration world: shallow water at the Exploration
-  Breakthrough, deep water with Shipbuilding's mastery or the Modern Breakthrough. Proof: `scenarios/ocean_land.js`.
+  Breakthrough, deep water with Shipbuilding's mastery or the Modern Breakthrough. This holds for every land unit,
+  Settlers too: a leading civ can reach and settle the Distant Lands in the Antiquity world, as an Exploration civ
+  can. The Distant Lands' world systems (treasure fleets, the Exploration legacy paths) still wait for the Exploration
+  world. Proof: `scenarios/ocean_land.js`.
 - **Deep-ocean damage.** In the Antiquity world, a unit on deep ocean takes the Exploration damage (11
   to 20 each turn) until its civ has Shipbuilding, as in the Exploration world. The amount is a world
   value that only the Exploration data sets, so up to version 0.3.0 nothing took damage in the
@@ -367,11 +372,11 @@ its own Breakthrough: deep-ocean damage and meeting the civs of the Distant Land
 
 ## The civ age banner
 
-A small banner at the top of the screen shows "Your age: X · World age: Y". It is the only new
-interface element.
+A small banner shows "Your age: X · World age: Y", by default at the top center of the screen. It and its
+option are the only new interface elements.
 
-Its place is an option: **Options > Interface > Continuous Ages > Age banner position**. The choices are top
-center (the default), top center lower, top left, top right, bottom left, bottom center, bottom right, and
-hidden. Choose another place if the banner covers the banner of another mod (a player report). The choice is
+Its place is an option: **Options > Interface > Continuous Ages > Age banner position**. The choices are Top
+center (the default), Top center lower, Top left, Top right, Bottom left, Bottom center, Bottom right, and
+Hidden. Choose another place if the banner covers the banner of another mod (a player report). The choice is
 kept between game sessions (in the game's UI storage), and it changes the banner at once. Proof:
 `scenarios/banner_position.js`.

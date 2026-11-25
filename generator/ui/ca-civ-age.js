@@ -100,9 +100,14 @@ try {
         info.currentValue = info.originalValue = BANNER_POSITIONS.indexOf(bannerPosition());
         info.selectedItemIndex = info.currentValue;
       },
+      // The banner moves at once (a preview). Cancel calls restoreListener, which puts back the value the screen opened
+      // with; Options.restore() calls initListener after it.
       updateListener: (info, value) => {
         info.currentValue = value;
         setBannerPosition(BANNER_POSITIONS[value]?.key ?? BANNER_POSITIONS[0].key);
+      },
+      restoreListener: (info) => {
+        setBannerPosition(BANNER_POSITIONS[info.originalValue]?.key ?? BANNER_POSITIONS[0].key);
       },
     });
   });

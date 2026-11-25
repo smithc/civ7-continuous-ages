@@ -33,7 +33,7 @@ your game is somewhere else.
 | `generator/build_test1.py` | The edits to the game's age transition script (`TRANSITION_EDITS`) and shared build helpers. |
 | `generator/civ7data.py` | Reads the game's modules and simulates the game database of each world age. |
 | `generator/classification.py` | Which game tables are content (loaded in every world, locked per civ) and which are systems (stay with their world age). |
-| `generator/ui/ca-civ-age.js` | The civ age banner; logs each civ's age and civ choice at each age end. |
+| `generator/ui/ca-civ-age.js` | The civ age banner and its position option (Options > Interface, kept in the UI's local storage); logs each civ's age and civ choice at each age end. |
 | `generator/ui/ca-tree-layout.js` | Tree screen columns from the prereqs inside each tree (the Breakthrough prereq of each age's first civics is in the tech tree; without this the civic tree has empty columns). It also repairs lines over more than one column: the game's `tree-grid.js` links them wrongly when a node has two of them, and its `tree-line.js` draws the last piece at the wrong height when the line's last dummy is a little below the target card (stray lines). The hover highlight skips the tech nodes in the path to a later-age civic (the game's code stops at the first one). |
 | `generator/checks/` | In-game check scripts and the autoplay test (built in only with `--checks`). |
 | `generator/iterate.py` | Build, install, autoplay and analysis in one step. `--worker N` runs it as a parallel game worker (see [Parallel games](#parallel-games)). |
@@ -107,7 +107,7 @@ automation, and writes `build/iterations/<time>/REPORT.md` with the logs and a c
 | Time-Tested civs from the start (Mughal, Norman, Mongolia, Qing, Inca, Ming): unique units and their base units (rule 2i) | `python iterate.py --suite ContinuousAgesTimeTested.json --fast-test 0.4 --turns 700 --observe NONE --timeout 150` | about 15 min |
 | The default setup: random AI civs, which can come from any age (Time-Tested) | `python iterate.py --suite ContinuousAgesDefault.json --no-fast-test --turns 700 --observe NONE --timeout 150 --expect-transitions 3 --set MapSeed=1001 --set GameSeed=1001` (run several seeds) | about 16 min |
 | The base game in the same setup (control) | add `--control` (the mod's logging and automation test only; most checks then fail) | as the suite |
-| A negative control: a run without a rule, which must fail | add `--disable-rule 2i` (or `6b`, `meet`, `civic-gate`, `oldres`, `worldproj`, `achieve`, `religion`, `mastery`; see `DISABLE_RULES` in `build_mod.py`) | as the suite |
+| A negative control: a run without a rule, which must fail | add `--disable-rule 2i` (or `6b`, `6c`, `meet`, `civic-gate`, `oldres`, `worldproj`, `achieve`, `religion`, `mastery`, `army`; see `DISABLE_RULES` in `build_mod.py`) | as the suite |
 | Civic tree screen (not an autoplay) | `python ui_test.py --save CA_AQ135` (see [UI test](#ui-test)) | about 2 min |
 | All scenario tests (not an autoplay; needs `build_mod.py --install --checks`) | `python live.py all` (see [Testing](testing.md#scenario-tests)) | about 1 to 2 min each |
 | One scenario, or a live game to drive by hand | `python live.py scenario scenarios/meet_distant.js`, or `live.py start`, `wait`, `eval`, `quit`; `--manual` for a normal game without automation | about 1 min |

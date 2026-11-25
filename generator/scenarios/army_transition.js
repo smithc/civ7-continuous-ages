@@ -1,10 +1,16 @@
 // Scenario test of units packed in a commander across the world transition (a player report of 2026-11-13: "all the
 // units I had packed in commanders were extracted and stacked in my capital; the ones on the map stayed where they were").
-// Build: build_mod.py --install --checks --age-points 8; suite: ContinuousAgesLive.json, Antiquity world.
-// Phase 1 (Antiquity world): an Army Commander away from the capital packs two Warriors; a third Warrior stays on the map
-// (control: a unit on the map keeps its plot); the age ends and the game makes the transition.
-// Phase 2 (the next world): the commander's army still holds its two units, with no plot of their own (the test); the
-// loose Warrior is still on its plot (control).
+// Build: build_mod.py --install --checks --age-points 8 --fast-test 0.01; suite: ContinuousAgesLive.json.
+// Phase 1: an Army Commander away from the capital packs its units: in the Antiquity world a mixed army (a Warrior and
+// two Slingers: two classes; a Slinger has no double shadow count in the mod's shadow step, so a shadow left over would
+// make an extra unit); in the Exploration world two Warriors. A Warrior stays on the map (control: a
+// unit on the map keeps its plot). Slot 0 then only ends its turns; the game makes the transition.
+// CAPack=MEDJAY+SLINGER (not in scenarios.json) reproduces the known limit "a unique unit of the previous civ lost at a
+// civ change": the game removes a packed Medjay at the change to another civ, and no replacement comes back (run
+// 20261124-232601-w1; with the Medjays outside the army, nothing is lost: 232351-w1).
+// Phase 2 (the next world): the army holds as many units as before, of the same classes, with no plot of their own (the
+// test); slot 0 has as many land military units as before (no extra unit made from a shadow of a packed unit, none
+// lost); the loose Warrior is on its plot (control).
 // CAFleet=1 with StartAge=AGE_EXPLORATION: a Fleet Commander packs two Cogs as well, across the Modern transition.
 // Negative control: --disable-rule army (the kept units are not put back into their army).
 const me = GameContext.localPlayerID;
@@ -14,33 +20,30 @@ const settle = (ms = 2000) => new Promise((r) => setTimeout(r, ms));
 if (Players.get(me).Cities.getCityIds().length === 0) await caLive.advance(2);
 Visibility.revealAllPlots(me);
 await settle();
+const startWorld = GameInfo.Ages.lookup(Game.age)?.AgeType;
+// CAPack=<unit types joined by +> sets the army (for example WARRIOR+SLINGER+SLINGER; live.py --set cuts at a comma).
+const packSet = (() => { try { return Automation.getParameter("CurrentTest", "CAPack") ?? null; } catch (e) { return null; } })();
+const PACK = packSet ? `${packSet}`.split("+").map((t) => `UNIT_${t.trim().replace(/^UNIT_/, "")}`)
+  : startWorld === "AGE_ANTIQUITY" ? ["UNIT_WARRIOR", "UNIT_SLINGER", "UNIT_SLINGER"] : ["UNIT_WARRIOR", "UNIT_WARRIOR"];
 const home = Players.get(me).Cities.getCityIds().map((id) => Cities.get(id)).find((c) => c?.isCapital).location;
 const dirs = Object.entries(DirectionTypes).filter(([k]) => k !== "NO_DIRECTION").map(([, v]) => v);
 const adj = (p) => dirs.map((d) => GameplayMap.getAdjacentPlotLocation(p, d)).filter((q) => q && q.x >= 0 && q.y >= 0);
-const land = (p) => !GameplayMap.isWater(p.x, p.y) && !GameplayMap.isImpassable(p.x, p.y) && GameplayMap.getOwner(p.x, p.y) === me
-  && !MapCities.getCity(p.x, p.y) && (MapUnits.getUnits(p.x, p.y)?.length ?? 0) === 0;
-// The commander's plot P (inside slot 0's land, 2 or more plots from the capital) with two free land plots next to it for
-// the Warriors to pack, and a fourth free plot for the loose Warrior.
-let spot = null;
-for (let r = 2; r < 6 && !spot; r++) {
-  for (const i of GameplayMap.getPlotIndicesInRadius(home.x, home.y, r)) {
-    const p = GameplayMap.getLocationFromIndex(i);
-    if (GameplayMap.getPlotDistance(p.x, p.y, home.x, home.y) < 2 || !land(p)) continue;
-    const n = adj(p).filter(land);
-    if (n.length >= 2) { spot = { p, a: n[0], b: n[1] }; break; }
-  }
-}
-// Slot 0's land is small on turn 3: else any free land plot near the capital.
 const any = (p) => !GameplayMap.isWater(p.x, p.y) && !GameplayMap.isImpassable(p.x, p.y) && !MapCities.getCity(p.x, p.y) && (MapUnits.getUnits(p.x, p.y)?.length ?? 0) === 0;
-for (let r = 2; r < 8 && !spot; r++) {
-  for (const i of GameplayMap.getPlotIndicesInRadius(home.x, home.y, r)) {
-    const p = GameplayMap.getLocationFromIndex(i);
-    if (GameplayMap.getPlotDistance(p.x, p.y, home.x, home.y) < 2 || !any(p)) continue;
-    const n = adj(p).filter(any);
-    if (n.length >= 2) { spot = { p, a: n[0], b: n[1] }; break; }
+const own = (p) => any(p) && GameplayMap.getOwner(p.x, p.y) === me;
+// The commander's plot P (2 or more plots from the capital, inside slot 0's land if possible) with a free land plot next
+// to it for each unit to pack.
+let spot = null;
+for (const ok of [own, any]) {
+  for (let r = 2; r < 8 && !spot; r++) {
+    for (const i of GameplayMap.getPlotIndicesInRadius(home.x, home.y, r)) {
+      const p = GameplayMap.getLocationFromIndex(i);
+      if (GameplayMap.getPlotDistance(p.x, p.y, home.x, home.y) < 2 || !ok(p)) continue;
+      const n = adj(p).filter(ok);
+      if (n.length >= PACK.length) { spot = { p, n: n.slice(0, PACK.length) }; break; }
+    }
   }
 }
-if (!spot) return { ok: false, error: "no free land plot with two free land plots next to it" };
+if (!spot) return { ok: false, error: `no free land plot with ${PACK.length} free land plots next to it` };
 // The loose Warrior: 3 or more plots from the commander ("pack army" takes the units next to the commander).
 for (let r = 2; r < 10 && !spot.loose; r++) {
   for (const i of GameplayMap.getPlotIndicesInRadius(home.x, home.y, r)) {
@@ -50,8 +53,8 @@ for (let r = 2; r < 10 && !spot.loose; r++) {
 }
 if (!spot.loose) return { ok: false, error: "no free land plot for the loose Warrior" };
 const cmd = await caLive.createUnitAndWait("UNIT_ARMY_COMMANDER", spot.p.x, spot.p.y);
-const w1 = await caLive.createUnitAndWait("UNIT_WARRIOR", spot.a.x, spot.a.y);
-const w2 = await caLive.createUnitAndWait("UNIT_WARRIOR", spot.b.x, spot.b.y);
+const made = [];
+for (const [i, type] of PACK.entries()) made.push(await caLive.createUnitAndWait(type, spot.n[i].x, spot.n[i].y));
 const loose = await caLive.createUnitAndWait("UNIT_WARRIOR", spot.loose.x, spot.loose.y);
 await settle();
 const state = (id) => { const u = Units.get(id); return u ? { id, type: GameInfo.Units.lookup(u.type)?.UnitType, x: u.location.x, y: u.location.y, armyId: u.armyId } : null; };
@@ -62,11 +65,17 @@ const c = cmd ? Units.get(cmd.id) : null;
 const army = c ? Armies.get(c.armyId) : null;
 // A packed unit shares the commander's army id and has no plot (-9999, -9999: live run 20261124-220017-w1).
 const packedIds = Players.get(me).Units.getUnitIds().filter((id) => id.id !== cmd?.id?.id && Units.get(id)?.armyId && c && Units.get(id).armyId.id === c.armyId.id);
+// The class of a unit as shadows carry it (its tag that names a row of Unit_ShadowReplacements).
+const shadowTags = new Set(Array.from(GameInfo.Unit_ShadowReplacements).map((r) => r.Tag));
+const classOf = (u) => Array.from(GameInfo.TypeTags).find((t) => t.Type === GameInfo.Units.lookup(u.type)?.UnitType && shadowTags.has(t.Tag))?.Tag ?? "none";
+const landMilitary = () => Players.get(me).Units.getUnitIds().map((id) => Units.get(id)).filter((u) => u && !u.isCommanderUnit
+  && GameInfo.Units.lookup(u.type)?.Domain === "DOMAIN_LAND" && GameInfo.Units.lookup(u.type)?.CoreClass === "CORE_CLASS_MILITARY");
 // The army's unitCount does not count the commander (run 20261124-221155-w1: 2 for two Warriors).
-expect("setup: the commander packed the two Warriors", !!army && army.unitCount === 2 && packedIds.length === 2,
-  { canPack: !!can?.Success, unitCount: army?.unitCount, commander: c ? state(cmd.id) : null, w1: w1 ? state(w1.id) : null, w2: w2 ? state(w2.id) : null, packedIds });
+expect(`setup: the commander packed its ${PACK.length} units`, !!army && army.unitCount === PACK.length && packedIds.length === PACK.length,
+  { canPack: !!can?.Success, unitCount: army?.unitCount, commander: c ? state(cmd.id) : null, made: made.map((u) => u ? state(u.id) : null), packedIds });
 const before = { commander: c ? { x: c.location.x, y: c.location.y } : null, packed: packedIds.length, loose: loose ? state(loose.id) : null,
-                 unitCount: army?.unitCount, capital: home, world: GameInfo.Ages.lookup(Game.age)?.AgeType };
+                 unitCount: army?.unitCount, capital: home, world: startWorld,
+                 classes: packedIds.map((id) => classOf(Units.get(id))).sort() };
 // CAFleet=1 (a game that starts in the Exploration world): a Fleet Commander on the coast packs two Cogs as well.
 const fleetOn = (() => { try { return Number(Automation.getParameter("CurrentTest", "CAFleet") ?? 0) === 1; } catch (e) { return false; } })();
 let fleetCmd = null;
@@ -103,7 +112,9 @@ const army2 = c2 ? Armies.get(c2.armyId) : null;
 before.commander = c2 ? { x: c2.location.x, y: c2.location.y } : before.commander;  // the AI does not move slot 0's units
 before.unitCount = army2?.unitCount ?? before.unitCount;
 before.loose = loose ? state(loose.id) : before.loose;
-expect("before the age end: the army still holds the two Warriors", (army2?.unitCount ?? 0) === 2,{ unitCount: army2?.unitCount, commander: before.commander });
+before.landMilitary = landMilitary().length;
+before.landTypes = landMilitary().map((u) => GameInfo.Units.lookup(u.type)?.UnitType.replace(/^UNIT_/, "")).sort();
+expect(`before the age end: the army still holds its ${PACK.length} units`, (army2?.unitCount ?? 0) === PACK.length, { unitCount: army2?.unitCount, commander: before.commander });
 if (fleetCmd) {
   const f2 = Units.get(fleetCmd.id);
   before.fleet = f2 ? { x: f2.location.x, y: f2.location.y, count: Armies.get(f2.armyId)?.unitCount } : null;
@@ -121,12 +132,16 @@ const expect = (name, ok, detail = {}) => { checks.push({ name, ok, detail }); c
 const world = GameInfo.Ages.lookup(Game.age)?.AgeType;
 const units = Players.get(me).Units.getUnitIds().map((id) => Units.get(id)).filter(Boolean);
 const info = (u) => ({ id: u.id.id, type: GameInfo.Units.lookup(u.type)?.UnitType, x: u.location.x, y: u.location.y, army: u.armyId?.id ?? null });
+const shadowTags = new Set(Array.from(GameInfo.Unit_ShadowReplacements).map((r) => r.Tag));
+const classOf = (u) => Array.from(GameInfo.TypeTags).find((t) => t.Type === GameInfo.Units.lookup(u.type)?.UnitType && shadowTags.has(t.Tag))?.Tag ?? "none";
 const commanders = units.filter((u) => u.isCommanderUnit);
 const cmd = commanders.find((u) => prev.commander && u.location.x === prev.commander.x && u.location.y === prev.commander.y)
   ?? commanders.find((u) => GameInfo.Units.lookup(u.type)?.UnitType !== "UNIT_FLEET_COMMANDER");
 const army = cmd ? Armies.get(cmd.armyId) : null;
 const inArmy = cmd ? units.filter((u) => u.id.id !== cmd.id.id && u.armyId?.id === cmd.armyId?.id) : [];
 const warriors = units.filter((u) => GameInfo.Units.lookup(u.type)?.UnitType === "UNIT_WARRIOR");
+const landMilitary = units.filter((u) => !u.isCommanderUnit && GameInfo.Units.lookup(u.type)?.Domain === "DOMAIN_LAND"
+  && GameInfo.Units.lookup(u.type)?.CoreClass === "CORE_CLASS_MILITARY");
 const NEXT = { AGE_ANTIQUITY: "AGE_EXPLORATION", AGE_EXPLORATION: "AGE_MODERN" };
 expect("the world is the next age and slot 0 is human", world === NEXT[prev.world] && Players.get(me).isHuman, { world, from: prev.world, turn: Game.turn });
 if (prev.fleet) {
@@ -140,11 +155,17 @@ if (prev.fleet) {
 }
 expect("the commander was kept on its plot", !!cmd && !!prev.commander && cmd.location.x === prev.commander.x && cmd.location.y === prev.commander.y,
   { commander: cmd ? info(cmd) : null, before: prev.commander });
-expect("test: the commander's army still holds its two units", (army?.unitCount ?? 0) === 2 && inArmy.length === 2,
-  { unitCount: army?.unitCount, inArmy: inArmy.map(info), warriors: warriors.map(info), capital: prev.capital });
+expect(`test: the commander's army still holds its ${prev.packed} units`, (army?.unitCount ?? 0) === prev.packed && inArmy.length === prev.packed,
+  { unitCount: army?.unitCount, inArmy: inArmy.map(info), capital: prev.capital });
+const classes = inArmy.map(classOf).sort();
+expect("test: the army holds units of the same classes as before", JSON.stringify(classes) === JSON.stringify(prev.classes),
+  { before: prev.classes, now: classes, inArmy: inArmy.map(info) });
 // A packed unit has no plot of its own (-9999, -9999); one on the commander's plot counts too.
-expect("test: the packed units are with the commander (no plot of their own)", inArmy.length === 2
+expect("test: the packed units are with the commander (no plot of their own)", inArmy.length === prev.packed
   && inArmy.every((u) => u.location.x < 0 || (u.location.x === cmd.location.x && u.location.y === cmd.location.y)), { inArmy: inArmy.map(info) });
+expect("test: slot 0 has as many land military units as at the age end (no extra unit, none lost)",
+  landMilitary.length === prev.landMilitary,
+  { before: prev.landMilitary, now: landMilitary.length, beforeTypes: prev.landTypes, nowTypes: landMilitary.map((u) => GameInfo.Units.lookup(u.type)?.UnitType.replace(/^UNIT_/, "")).sort() });
 const looseNow = prev.loose ? warriors.find((u) => u.location.x === prev.loose.x && u.location.y === prev.loose.y && !inArmy.includes(u)) : null;
 expect("control: the Warrior on the map kept its plot", !!looseNow, { before: prev.loose, warriors: warriors.map(info) });
 return { ok: checks.every((x) => x.ok), failed: checks.filter((x) => !x.ok), checks, units: units.map(info) };

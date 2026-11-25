@@ -766,7 +766,9 @@ def army_report(armies: list) -> tuple[list[str], bool]:
     """Units packed in commanders through each world transition (a player report of 2026-11-13). The ARMIES records of
     the transition script: 'before' the unit step, the shadows of packed units on each commander's plot (armyShadows);
     'after' it, each commander's army count. A commander on a plot with N such shadows must hold N units after the step
-    (else ARMY FAIL). A plot with shadows and no commander is listed (information)."""
+    (else ARMY FAIL), and a player with packed shadows needs an 'after' record (else ARMY FAIL). A plot with shadows and
+    no commander is listed (information). The classes of the shadows and the unit types in the army after the step are
+    listed for a reader to compare (information: a unique unit's shadow can carry another class)."""
     lines = ["## Armies at world transitions (ARMIES)", ""]
     if not armies:
         return lines + ["- no ARMIES records (no commander at a transition, or a build before 2026-11-24)", ""], False
@@ -777,20 +779,29 @@ def army_report(armies: list) -> tuple[list[str], bool]:
         after = next((r for r in armies if (r.get("age") or "?") == age and r.get("id") == pid and r.get("when") == "after"), None)
         if before is None:
             continue
-        for plot, n in (before.get("armyShadows") or {}).items():
+        shadows = before.get("armyShadows") or {}
+        if shadows and after is None:
+            failed = True
+            rows.append(f"| {age} | {pid} | - | {sum(shadows.values())} | no 'after' record ARMY FAIL |")
+            continue
+        tags = before.get("armyTags") or {}
+        for plot, n in shadows.items():
             total += n
+            # The 'after' record lists every commander on a plot that had packed shadows (builds from 2026-11-24 on).
             cmd = next((c for c in (after or {}).get("commanders", []) if c.get("at") == plot), None)
             if cmd is None:
-                rows.append(f"| {age} | {pid} | {plot} | {n} | no commander on the plot (information) |")
+                rows.append(f"| {age} | {pid} | {plot} | {n} {tags.get(plot, '')} | no commander on the plot (information) |")
                 continue
             got = cmd.get("count") or 0
             kept += min(got, n)
             ok = got >= n
             failed |= not ok
-            rows.append(f"| {age} | {pid} | {plot} ({cmd.get('type')}) | {n} | {got}{'' if ok else ' ARMY FAIL'} |")
+            rows.append(f"| {age} | {pid} | {plot} ({cmd.get('type')}) | {n} {tags.get(plot, '')} | {got} "
+                        f"{','.join(cmd.get('packed') or [])}{'' if ok else ' ARMY FAIL'} |")
     lines += [f"- packed units at the transitions: {total}; back in their army after the unit step: {kept}", ""]
     if rows:
-        lines += ["| New world | Player | Commander's plot | Packed (shadows) | In the army after |", "| --- | --- | --- | --- | --- |"] + rows + [""]
+        lines += ["| New world | Player | Commander's plot | Packed (shadows, classes) | In the army after (count, types) |",
+                  "| --- | --- | --- | --- | --- |"] + rows + [""]
     return lines, failed
 
 
