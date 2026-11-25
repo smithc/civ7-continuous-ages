@@ -194,9 +194,18 @@ const diag = () => ({ turn: Game.turn, capital: { name: cap()?.name, x: cap()?.l
   prep: why("PROJECT_CREWED_SPACE_FLIGHT_PREP"), satellite: why("PROJECT_LAUNCH_SATELLITE"), sound: why("PROJECT_BREAK_SOUND_BARRIER") });
 caLive.log({ scenario: "project_achievements", phase: 4, diag: diag() });
 expect("the world is Modern and slot 0 is human", world === "AGE_MODERN" && Players.get(me).isHuman, { world, turn: Game.turn });
+// Game 1.5.1.41: on the Modern world's first turn the capital refused every project, with no reason given, in 2 of 3
+// runs (20261124-213628-w1, 20261125-004159-w1; all 7 runs on 1.5.1.32 passed). All checks below then ask on the next
+// turn (a "cannot be started" check on such a turn would pass for any project); the first turn's answers are logged.
+let firstTurn = null;
+if (!can("PROJECT_BREAK_SOUND_BARRIER") && !can("PROJECT_CREWED_SPACE_FLIGHT_PREP") && !can("PROJECT_LAUNCH_SATELLITE")) {
+  firstTurn = diag();
+  caLive.log({ scenario: "project_achievements", phase: 4, firstTurnRefusedAll: true, d: firstTurn });
+  await nextTurn();
+}
 const s = Object.fromEntries(FOUR.map((p) => [p.slice(8), { can: can(p), tag: tag(p) }]));
-expect("test: after two transitions, the 4 tags are still there", FOUR.every((p) => s[p.slice(8)].tag === 1), s);
-expect("test: after two transitions, none of the 4 can be started again", FOUR.every((p) => !s[p.slice(8)].can), s);
+expect("test: after two transitions, the 4 tags are still there", FOUR.every((p) => s[p.slice(8)].tag === 1), { ...s, turn: Game.turn });
+expect("test: after two transitions, none of the 4 can be started again", FOUR.every((p) => !s[p.slice(8)].can), { ...s, turn: Game.turn });
 if (modern.air) {
   // A Modern achievement through the transition to its own world.
   expect("test: Trans-Oceanic Flight (built in the Exploration world) keeps its tag and cannot be started in its own world",

@@ -266,6 +266,27 @@ class AutomationTestCAPlayAges extends AutomationBasePlayGame {
     logChunks("UNITS", { when: "end", age, id: player.id }, "types", unitTypes(player));
     logChunks("POLICIES", { when: "end", age, id: player.id }, "types", policyNames(player));
     logConstructibles("CONS", player, { when: "end", age });
+    this.logArmiesEnd(age, player);
+  }
+  // Each commander at the age end: its army count, the types in its army, and the units on and next to its plot
+  // (ARMYEND; compare with the transition script's ARMIES records: where the packed units went).
+  logArmiesEnd(age, player) {
+    try {
+      const short = (u) => (GameInfo.Units.lookup(u?.type)?.UnitType ?? "?").replace(/^UNIT_/, "");
+      const units = (player.Units?.getUnitIds() ?? []).map((id) => Units.get(id)).filter((u) => u != null);
+      for (const c of units.filter((u) => u.isCommanderUnit)) {
+        const army = Armies.get(c.armyId);
+        const inArmy = units.filter((u) => u !== c && !u.isCommanderUnit && u.armyId?.id >= 0 && u.armyId?.id == c.armyId?.id);
+        const near = units.filter((u) => u !== c && !inArmy.includes(u) && u.location.x >= 0
+          && GameplayMap.getPlotDistance(u.location.x, u.location.y, c.location.x, c.location.y) <= 1);
+        console.warn(`[CA-CHECK][ARMYEND] ${JSON.stringify({ age, turn: Game.turn, id: player.id, type: short(c),
+          at: `${c.location.x},${c.location.y}`, count: army?.unitCount ?? null,
+          packed: inArmy.map((u) => `${short(u)}@${u.location.x},${u.location.y}`).slice(0, 6),
+          near: near.map((u) => `${short(u)}@${u.location.x},${u.location.y}/a${u.armyId?.id}`).slice(0, 6) })}`);
+      }
+    } catch (e) {
+      console.warn(`[CA-CHECK][ERROR] armies at the age end, player ${player.id}: ${e}`);
+    }
   }
 }
 

@@ -107,10 +107,15 @@ replaces the game's transition script with a copy that has the reset steps remov
 - Every unit is kept as it is, except religious units: the game removes them at the load into the Modern world
   (rule 2m, see [World systems](#world-systems)).
 - **Units packed in a commander stay packed.** At the load of a new world, the game takes the packed units out of
-  their army and puts them in the capital. The base game then fills the army again from its new units; the mod keeps
-  the units themselves, so up to version 0.6.0 every army came back empty and its units stood in the capital (a player
-  report). Now the transition script puts each kept unit back into its army: an Army Commander's land units and a Fleet
-  Commander's ships, for every civ. In a test game through the Modern transition, all 20 packed units of 6 civs came
+  their army and puts them in the civ's cities: stacked in the capital when the civ has few cities, one per city
+  otherwise. A packed unique unit that the game converts at the load (for example a Hoplite to a Swordsman) also
+  ends alone in a city. The base game then fills the army again from its new units; the mod keeps the units
+  themselves, so up to version 0.6.0 every army came back empty and its units stood in the capital (a player report).
+  Now the transition script puts a unit of the same class back into each army slot, for an Army Commander's land
+  units and a Fleet Commander's ships, for every civ. It takes a unit from a stack first (the capital first), then a
+  unit that no shadow explains, then a unit alone in a city, the nearest to the commander first. It never takes a
+  unit of another class, or a unit alone outside a city. When a city's own garrison has the same class as the moved
+  unit, either of the two can go into the army. In a test game through the Modern transition, all 20 packed units of 6 civs came
   back into their armies (run 20261124-224126-w1; without the fix, none: 20261124-224407-w1). One case is still
   open: at a civ change the game removes a unique unit of the previous civ that is packed in an army (for example a
   Medjay), and no replacement comes back ([Known limits](known-limits.md#open-checks)).

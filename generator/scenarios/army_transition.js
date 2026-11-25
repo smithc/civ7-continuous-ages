@@ -32,12 +32,15 @@ const any = (p) => !GameplayMap.isWater(p.x, p.y) && !GameplayMap.isImpassable(p
 const own = (p) => any(p) && GameplayMap.getOwner(p.x, p.y) === me;
 // The commander's plot P (2 or more plots from the capital, inside slot 0's land if possible) with a free land plot next
 // to it for each unit to pack.
+// CAFar=1: the commander 6 or more plots from the capital (AI armies in whole games came back empty in other ways).
+const far = (() => { try { return Number(Automation.getParameter("CurrentTest", "CAFar") ?? 0) === 1; } catch (e) { return false; } })();
+const minDist = far ? 6 : 2;
 let spot = null;
-for (const ok of [own, any]) {
-  for (let r = 2; r < 8 && !spot; r++) {
+for (const ok of far ? [any] : [own, any]) {
+  for (let r = minDist; r < minDist + 6 && !spot; r++) {
     for (const i of GameplayMap.getPlotIndicesInRadius(home.x, home.y, r)) {
       const p = GameplayMap.getLocationFromIndex(i);
-      if (GameplayMap.getPlotDistance(p.x, p.y, home.x, home.y) < 2 || !ok(p)) continue;
+      if (GameplayMap.getPlotDistance(p.x, p.y, home.x, home.y) < minDist || !ok(p)) continue;
       const n = adj(p).filter(ok);
       if (n.length >= PACK.length) { spot = { p, n: n.slice(0, PACK.length) }; break; }
     }
