@@ -269,16 +269,6 @@ Antiquity turns 100 and 135, Exploration turns 60 and 135, Modern turn 60), each
   Antiquity) took Mississippian, an Antiquity civ, in the Exploration world. The AI mode Mirroring
   should switch to a civ of the new age or keep the civ. Not yet compared with the base game; the
   mod does not change the civ choice. The test reports it as `CIV CHOICE FAIL`.
-- **A crash at a world load (game 1.5.1.41, 2026-11-25).** One game of 13 in the set 20261125-022213 (Catch-up,
-  worker 4) crashed as the Modern world loaded, after the game had rebuilt its database and before any mod script of
-  the new world ran (dump `618009F4224E2CEB16`: an access violation in the game's statistics database code,
-  `@DataPoint`, `@GameID`, "A row was returned during an Execute command"). The same item passed in the sets before
-  and after it. The crash reporter packaged the dump about 1.5 hours later, and a save test that ran in the same
-  worker then found it as a "new" dump (20261125-045016-w4; that game played its 20 turns; the rerun 045613-w4 passed).
-  A second crash in the set 20261125-111722: a live game that started in the Exploration world (`ocean_land.js`,
-  worker 1) crashed in its first turns, before any transition (dump `1D448BC0AE7E91AB16`: an access violation in
-  `Player::Processor::Update`, 20261125-114332-w1). Its dump was packaged about 27 minutes later and stopped the next
-  scenario's start (20261125-121122-w1). Both scenarios passed on a rerun (124502-w1, 124855-w1).
 - **Crashes at game start.** About 3 of 60 test games crashed in the first minutes, in the game's
   audio engine. A retry ran clean each time. No crash happened later in a game. `iterate.py` now retries
   a run once when the game crashes before turn 5, and the report says so. One more crash, on

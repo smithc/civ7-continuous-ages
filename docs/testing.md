@@ -332,7 +332,7 @@ Gaps to close next, most important first:
    another class; fixed in 939207f), and `live` on `project_achievements.js` (the first-turn refusal, an open check; the
    scenario now asks on the next turn). 20261125-022213 (git 939207f) was stopped after 6 items passed, when the human slot
    showed a Carrack that the repack could not match (fixed in 9e00cf3); its Catch-up game crashed at the Modern load in the
-   game's own code ([Known limits](known-limits.md#open-checks)). 20261125-032604 (git 9e00cf3; 90 min on 6 workers, two
+   game's own code. 20261125-032604 (git 9e00cf3; 90 min on 6 workers, two
    items after the base game's autosave hang): 16 of 19 results passed. Not passed, all fixed: the human slot
    20261125-032620-w2 (a Port bought again on turn 104 by a settlement that bought it as a town and was then attacked:
    a repair, now listed as information; re-analysis PASS, and all 16 passing runs stay PASS); `live` (`old_resources.js`:
